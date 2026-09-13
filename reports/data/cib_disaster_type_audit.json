@@ -1,0 +1,119 @@
+{
+  "aidr_single_event_folders": 17,
+  "aidr_images_in_single_event_folders": 5769,
+  "aidr_weighted_folder_purity": 0.749,
+  "folder_purity": {
+    "harvey": 0.365,
+    "hurricane_florence_2018": 0.412,
+    "earthquake_north_of_chile": 0.489,
+    "food_insecurity_in_yemen": 0.609,
+    "snow_storm_jonas": 0.643,
+    "paris_attack": 0.667,
+    "terremotoitalia": 0.712,
+    "ukraine_conflict": 0.714,
+    "irma": 0.736,
+    "kerala_flood_2018": 0.77,
+    "nepal_earthquake": 0.788,
+    "maria": 0.789,
+    "typhoon_mangkhut_2018": 0.818,
+    "syria_attacks_2017": 0.833,
+    "hurricane_michael_2018": 0.847,
+    "chennai_flood": 0.869,
+    "greece_wildfire_2018": 0.988
+  },
+  "crisismmd_event_folders": {
+    "harvey": {
+      "hurricane": 226,
+      "flood": 201,
+      "not_disaster": 187,
+      "fire": 3,
+      "earthquake": 2,
+      "other_disaster": 1
+    },
+    "irma": {
+      "hurricane": 67,
+      "not_disaster": 21,
+      "flood": 2,
+      "other_disaster": 1
+    },
+    "maria": {
+      "hurricane": 332,
+      "not_disaster": 67,
+      "flood": 17,
+      "other_disaster": 3,
+      "fire": 1,
+      "landslide": 1
+    }
+  },
+  "dmd_folder_vs_type": {
+    "damaged_infrastructure": {
+      "other_disaster": 980,
+      "hurricane": 208,
+      "earthquake": 170,
+      "fire": 21,
+      "flood": 11,
+      "landslide": 7
+    },
+    "damaged_nature": {
+      "other_disaster": 302,
+      "hurricane": 148,
+      "landslide": 46,
+      "fire": 9,
+      "flood": 9,
+      "earthquake": 1
+    },
+    "fires": {
+      "fire": 326,
+      "other_disaster": 8
+    },
+    "flood": {
+      "flood": 347,
+      "other_disaster": 32,
+      "hurricane": 6
+    },
+    "human_damage": {
+      "other_disaster": 167,
+      "earthquake": 11,
+      "fire": 6,
+      "flood": 1,
+      "landslide": 1
+    },
+    "non_damage": {
+      "not_disaster": 2971
+    }
+  },
+  "folder_derived": false,
+  "crisismmd_cross_check": {
+    "linked_pairs": 604,
+    "crosstab": {
+      "earthquake": {
+        "informative": 98,
+        "not_informative": 0
+      },
+      "fire": {
+        "informative": 45,
+        "not_informative": 4
+      },
+      "flood": {
+        "informative": 110,
+        "not_informative": 3
+      },
+      "hurricane": {
+        "informative": 264,
+        "not_informative": 8
+      },
+      "landslide": {
+        "informative": 1,
+        "not_informative": 0
+      },
+      "not_disaster": {
+        "informative": 21,
+        "not_informative": 32
+      },
+      "other_disaster": {
+        "informative": 18,
+        "not_informative": 0
+      }
+    }
+  }
+}
