@@ -1,0 +1,112 @@
+{
+  "random_pairs_sampled": 999978,
+  "random_pair_histogram": {
+    "0": 2,
+    "2": 2,
+    "6": 1,
+    "8": 1,
+    "14": 23,
+    "16": 184,
+    "18": 930,
+    "20": 4180,
+    "22": 13972,
+    "24": 38396,
+    "26": 82314,
+    "28": 138547,
+    "30": 183929,
+    "32": 193859,
+    "34": 158746,
+    "36": 102671,
+    "38": 52452,
+    "40": 21101,
+    "42": 6695,
+    "44": 1609,
+    "46": 319,
+    "48": 40,
+    "50": 4,
+    "54": 1
+  },
+  "tail_fit": {
+    "distances": [
+      14,
+      16,
+      18,
+      20
+    ],
+    "ratio_per_2_bits": 0.18
+  },
+  "per_distance": {
+    "0": {
+      "linked": 2610,
+      "expected_chance": 0.1,
+      "est_precision": 1.0
+    },
+    "2": {
+      "linked": 402,
+      "expected_chance": 0.6,
+      "est_precision": 0.999
+    },
+    "4": {
+      "linked": 331,
+      "expected_chance": 3.1,
+      "est_precision": 0.991
+    },
+    "6": {
+      "linked": 530,
+      "expected_chance": 17.5,
+      "est_precision": 0.967
+    },
+    "8": {
+      "linked": 590,
+      "expected_chance": 97.8,
+      "est_precision": 0.834
+    },
+    "10": {
+      "linked": 1044,
+      "expected_chance": 547.8,
+      "est_precision": 0.475
+    },
+    "12": {
+      "linked": 3194,
+      "expected_chance": 3067.6,
+      "est_precision": 0.04
+    }
+  },
+  "cumulative": {
+    "0": {
+      "linked": 2610,
+      "expected_chance": 0.1,
+      "est_precision": 1.0
+    },
+    "2": {
+      "linked": 3012,
+      "expected_chance": 0.7,
+      "est_precision": 1.0
+    },
+    "4": {
+      "linked": 3343,
+      "expected_chance": 3.8,
+      "est_precision": 0.999
+    },
+    "6": {
+      "linked": 3873,
+      "expected_chance": 21.2,
+      "est_precision": 0.995
+    },
+    "8": {
+      "linked": 4463,
+      "expected_chance": 119.1,
+      "est_precision": 0.973
+    },
+    "10": {
+      "linked": 5507,
+      "expected_chance": 666.8,
+      "est_precision": 0.879
+    },
+    "12": {
+      "linked": 8701,
+      "expected_chance": 3734.5,
+      "est_precision": 0.571
+    }
+  }
+}

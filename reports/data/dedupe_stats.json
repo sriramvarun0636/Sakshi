@@ -1,0 +1,17 @@
+{
+  "threshold": 8,
+  "pairs_at_threshold": 4463,
+  "within_crisismmd": 3385,
+  "within_cib": 474,
+  "cross_dataset": 604,
+  "same_tweet": 248,
+  "cross_event": 1328,
+  "cross_event_involving_non_crisismmd_event": 247,
+  "distance_histogram": {
+    "0": 2610,
+    "2": 402,
+    "4": 331,
+    "6": 530,
+    "8": 590
+  }
+}

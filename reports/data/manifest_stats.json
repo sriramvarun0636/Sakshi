@@ -1,0 +1,62 @@
+{
+  "crisismmd": {
+    "images": 18083,
+    "tweets": 16058,
+    "agreed_informative": 12708,
+    "agreed_humanitarian": 8079,
+    "agree_after_merge_but_not_in_agreed_file": 109,
+    "in_agreed_file_but_disagree_after_merge": 0,
+    "severity_labelled": 3526,
+    "severity_but_image_not_humanitarian": 0,
+    "gate_violation_not_informative_but_humanitarian": 0,
+    "text_repaired_by_ftfy": 3521,
+    "missing_posted_at": 0,
+    "missing_collection_date": 0,
+    "posted_outside_collection_window": 0,
+    "images_with_conflicting_official_splits": 7703,
+    "images_test_for_one_task_train_for_another": 3704,
+    "tweets_split_across_train_dev_test_within_one_task": 120,
+    "missing_image_files": 0
+  },
+  "cib": {
+    "images_labelled": 17602,
+    "images_with_files": 17602,
+    "by_source": {
+      "aidr_dt": 11723,
+      "dmd": 5879
+    },
+    "files_present_by_source": {
+      "aidr_dt": 11723,
+      "dmd": 5879
+    },
+    "mapped_to_crisismmd_event": {
+      "hurricane_harvey": 620,
+      "hurricane_maria": 421,
+      "hurricane_irma": 91
+    },
+    "labelled": {
+      "y_disaster_type": 17511,
+      "y_severity": 5878
+    },
+    "images_with_conflicting_official_splits": 2549
+  },
+  "humaid": {
+    "tweets": 41152,
+    "events": 11,
+    "labels": {
+      "rescue_volunteering_or_donation_effort": 11735,
+      "other_relevant_information": 7348,
+      "infrastructure_and_utility_damage": 5928,
+      "sympathy_and_support": 4649,
+      "injured_or_dead_people": 3685,
+      "caution_and_advice": 2191,
+      "displaced_people_and_evacuations": 2136,
+      "not_humanitarian": 1835,
+      "requests_or_urgent_needs": 1626,
+      "missing_or_found_people": 19
+    },
+    "same_tweet_id_as_crisismmd": 0,
+    "same_normalised_text_as_crisismmd": 261,
+    "excluded_from_humaid_evaluation": 261
+  }
+}

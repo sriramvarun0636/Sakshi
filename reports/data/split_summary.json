@@ -1,0 +1,177 @@
+{
+  "resolved": {
+    "train": 19896,
+    "test": 10069,
+    "dev": 5720
+  },
+  "components": 31133,
+  "largest_component": 91,
+  "components_over_10": 12,
+  "per_source": {
+    "split_informative": {
+      "official_train": 13608,
+      "kept_as_train": 8729,
+      "official_test_kept_as_test": 2237,
+      "official_test": 2237
+    },
+    "split_humanitarian": {
+      "official_train": 13608,
+      "kept_as_train": 8729,
+      "official_test_kept_as_test": 2237,
+      "official_test": 2237
+    },
+    "split_damage": {
+      "official_train": 2468,
+      "kept_as_train": 1090,
+      "official_test_kept_as_test": 529,
+      "official_test": 529
+    },
+    "split_cib_disaster_types": {
+      "official_train": 12724,
+      "kept_as_train": 11105,
+      "official_test_kept_as_test": 3213,
+      "official_test": 3213
+    },
+    "split_cib_damage": {
+      "official_train": 4239,
+      "kept_as_train": 2987,
+      "official_test_kept_as_test": 1138,
+      "official_test": 1138
+    }
+  },
+  "threshold": 8,
+  "linked_pairs": 4675,
+  "linked_pairs_straddling_official_train_test": 2007,
+  "exact_cross_dataset_copies": 212,
+  "components_spanning_datasets": 419,
+  "aidr_disaster_type_dropped": false,
+  "labels_by_split": {
+    "y_informative": {
+      "dev": {
+        "informative": 1865,
+        "not_informative": 809
+      },
+      "test": {
+        "informative": 2983,
+        "not_informative": 1045
+      },
+      "train": {
+        "informative": 3583,
+        "not_informative": 2423
+      }
+    },
+    "y_humanitarian": {
+      "dev": {
+        "affected_individuals": 15,
+        "infrastructure_and_utility_damage": 194,
+        "not_humanitarian": 809,
+        "other_relevant_information": 369,
+        "rescue_volunteering_or_donation_effort": 234
+      },
+      "test": {
+        "affected_individuals": 30,
+        "infrastructure_and_utility_damage": 339,
+        "not_humanitarian": 1045,
+        "other_relevant_information": 560,
+        "rescue_volunteering_or_donation_effort": 273
+      },
+      "train": {
+        "affected_individuals": 44,
+        "infrastructure_and_utility_damage": 240,
+        "not_humanitarian": 2423,
+        "other_relevant_information": 824,
+        "rescue_volunteering_or_donation_effort": 680
+      }
+    },
+    "y_severity": {
+      "dev": {
+        "little_or_no_damage": 665,
+        "mild_damage": 313,
+        "severe_damage": 679
+      },
+      "test": {
+        "little_or_no_damage": 1602,
+        "mild_damage": 590,
+        "severe_damage": 1478
+      },
+      "train": {
+        "little_or_no_damage": 2191,
+        "mild_damage": 636,
+        "severe_damage": 1250
+      }
+    },
+    "y_disaster_type": {
+      "dev": {
+        "earthquake": 255,
+        "fire": 164,
+        "flood": 333,
+        "hurricane": 237,
+        "landslide": 128,
+        "not_disaster": 617,
+        "other_disaster": 207
+      },
+      "test": {
+        "earthquake": 507,
+        "fire": 365,
+        "flood": 757,
+        "hurricane": 502,
+        "landslide": 275,
+        "not_disaster": 1482,
+        "other_disaster": 577
+      },
+      "train": {
+        "earthquake": 1907,
+        "fire": 1142,
+        "flood": 2111,
+        "hurricane": 1232,
+        "landslide": 928,
+        "not_disaster": 2992,
+        "other_disaster": 793
+      }
+    }
+  },
+  "loeo": {
+    "loeo_srilanka_floods": {
+      "train": 29128,
+      "dev": 5523,
+      "test": 1022,
+      "excluded": 12
+    },
+    "loeo_hurricane_harvey": {
+      "train": 25662,
+      "dev": 4655,
+      "test": 4435,
+      "excluded": 933
+    },
+    "loeo_hurricane_irma": {
+      "train": 26036,
+      "dev": 4790,
+      "test": 4504,
+      "excluded": 355
+    },
+    "loeo_hurricane_maria": {
+      "train": 25842,
+      "dev": 4689,
+      "test": 4556,
+      "excluded": 598
+    },
+    "loeo_mexico_earthquake": {
+      "train": 28781,
+      "dev": 5395,
+      "test": 1380,
+      "excluded": 129
+    },
+    "loeo_california_wildfires": {
+      "train": 28638,
+      "dev": 5350,
+      "test": 1589,
+      "excluded": 108
+    },
+    "loeo_iraq_iran_earthquake": {
+      "train": 29360,
+      "dev": 5581,
+      "test": 597,
+      "excluded": 147
+    }
+  }
+}
