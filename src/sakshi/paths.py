@@ -1,6 +1,8 @@
 """Filesystem layout. Everything under data/ is git-ignored."""
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 DATA = REPO / "data"
@@ -17,3 +19,19 @@ CRISISMMD_ROOT = RAW / "CrisisMMD_v2.0"
 CIB_ROOT = RAW / "crisis_vision_benchmarks"
 # HumAID text-only tweets: events_set1/<event>/<event>_{train,dev,test}.tsv
 HUMAID_ROOT = RAW / "humaid"
+
+
+def image_file(row: Mapping[str, Any]) -> Path:
+    """Return the absolute image path for a manifest row without allowing path escapes."""
+    dataset = row["dataset"]
+    if dataset == "crisismmd":
+        root = CRISISMMD_ROOT
+    elif dataset == "cib":
+        root = CIB_ROOT
+    else:
+        raise ValueError(f"unknown image dataset: {dataset!r}")
+
+    relative = Path(row["image_path"])
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"image_path must stay within {root}: {relative}")
+    return root / relative

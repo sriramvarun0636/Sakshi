@@ -1,0 +1,2 @@
+# Defaults live in sakshi.models.train.TrainConfig and FusionConfig.
+name: full
