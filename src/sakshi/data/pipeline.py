@@ -6,17 +6,19 @@ so any step can be re-run on its own:
     extract    unpack downloaded archives into data/raw/
     manifests  one row per image for each dataset: harmonised labels, official splits, timestamps
     hash       64-bit perceptual hash of every image (cached across runs)
+    features   frozen CLIP tokens and retrieval embeddings (optional ML extra)
     dedupe     near-duplicate pairs, threshold calibration, cross-event provenance candidates
     audit      whether disaster-type labels were derived from event folders
     splits     unified leakage-free split and leave-one-event-out folds -> manifest.parquet
     report     regenerate reports/data/tables.md from the step outputs
 
-Steps that need the Crisis Image Benchmark or HumAID are skipped, with a log message,
-until those datasets are present.
+Steps that need the Crisis Image Benchmark, HumAID, or the optional ML extra are skipped,
+with a log message, until those inputs are present.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import subprocess
@@ -29,7 +31,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from sakshi import paths
+from sakshi import atomic, paths
 from sakshi.data import cib, crisismmd, humaid, phash, report, splits
 
 log = logging.getLogger(__name__)
@@ -48,10 +50,16 @@ class Config:
     max_distance: int = 8  # pHash Hamming distance at or below which two images are linked
     workers: int = 8
 
+    def __post_init__(self) -> None:
+        if not 0 <= self.max_distance <= STORE_MAX_DISTANCE:
+            raise ValueError(f"max_distance must be between 0 and {STORE_MAX_DISTANCE}; stored pairs stop there")
+        if self.workers < 1:
+            raise ValueError("workers must be positive")
+
 
 def _save_json(name: str, obj: Any) -> None:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORT_DIR / name).write_text(json.dumps(obj, indent=2, default=str) + "\n")
+    atomic.text(REPORT_DIR / name, json.dumps(obj, indent=2, default=str) + "\n")
 
 
 def _load_json(name: str) -> Any:
@@ -106,7 +114,7 @@ def manifests(_cfg: Config) -> None:
         stats["crisismmd"]["missing_image_files"] = len(missing)
         if missing:
             log.warning("crisismmd: %d image files missing, e.g. %s", len(missing), missing[:3])
-    cm.to_parquet(OUT / "crisismmd.parquet", index=False)
+    atomic.parquet(OUT / "crisismmd.parquet", cm)
     log.info("crisismmd: %s images", f"{len(cm):,}")
 
     if (paths.CIB_ROOT / "tasks").exists():
@@ -124,7 +132,7 @@ def manifests(_cfg: Config) -> None:
             "images_with_conflicting_official_splits": int(conflicting.sum()),
         }
         if present.any():
-            cb[present].to_parquet(OUT / "cib.parquet", index=False)
+            atomic.parquet(OUT / "cib.parquet", cb[present])
             log.info("cib: %s of %s labelled images have files", f"{int(present.sum()):,}", f"{len(cb):,}")
         else:
             log.warning("cib: label files found but no images extracted; skipping")
@@ -133,7 +141,7 @@ def manifests(_cfg: Config) -> None:
 
     if (paths.HUMAID_ROOT / "events_set1").exists():
         exclude, stats["humaid"] = humaid.overlap(humaid.read_tweets(), cm)
-        exclude.to_csv(OUT / "humaid_exclude.csv", index=False)
+        atomic.csv(OUT / "humaid_exclude.csv", exclude)
         log.info("humaid: %d tweets repeat CrisisMMD tweets and are excluded from evaluation", len(exclude))
     _save_json("manifest_stats.json", stats)
 
@@ -156,8 +164,18 @@ def hash_images(cfg: Config) -> None:
             new = phash.hash_images([root / p for p in todo], workers=cfg.workers)
             new.insert(0, "image_path", todo.to_numpy())
             cache = pd.concat([cache, new], ignore_index=True) if len(cache) else new
-            cache.to_parquet(cache_path, index=False)
+            atomic.parquet(cache_path, cache)
         log.info("%s: %d unreadable, %d degenerate", name, int(cache.error.notna().sum()), int(cache.degenerate.sum()))
+
+
+def cache_features(_cfg: Config) -> None:
+    """Compute frozen CLIP features when the optional ML dependencies are installed."""
+    if importlib.util.find_spec("torch") is None or importlib.util.find_spec("transformers") is None:
+        log.warning("features: optional ML dependencies missing; install with pip install -e '.[ml]' to build the cache")
+        return
+    from sakshi.data.features import ClipFeaturizer, build_cache
+
+    build_cache(load_samples(), ClipFeaturizer())
 
 
 # ----------------------------------------------------------------------------- dedupe
@@ -206,8 +224,8 @@ def dedupe(cfg: Config) -> None:
     ).rename(columns={"sample_id_a": "a", "sample_id_b": "b"})
     nd["distance"] = pairs.distance.to_numpy()
     nd["same_tweet"] = nd.tweet_id_a.notna() & (nd.tweet_id_a == nd.tweet_id_b)
-    nd.to_parquet(OUT / "near_duplicates.parquet", index=False)
-    exact_links(s).to_parquet(OUT / "exact_links.parquet", index=False)
+    atomic.parquet(OUT / "near_duplicates.parquet", nd)
+    atomic.parquet(OUT / "exact_links.parquet", exact_links(s))
     _save_json("phash_calibration.json", phash.calibrate_threshold(h, nd.distance.to_numpy(), STORE_MAX_DISTANCE))
 
     linked = nd[nd.distance <= cfg.max_distance]
@@ -233,7 +251,7 @@ def dedupe(cfg: Config) -> None:
     cand["earlier"] = np.where(cand.order_known, np.where(a_first, cand.a, cand.b), "")
     cand["later"] = np.where(cand.order_known, np.where(a_first, cand.b, cand.a), "")
     cand["verdict"] = ""  # manual review: repost / template_or_placeholder / stock_or_press / false_match
-    cand.sort_values("distance").to_csv(REPORT_DIR / "provenance_candidates.csv", index=False)
+    atomic.csv(REPORT_DIR / "provenance_candidates.csv", cand.sort_values("distance"))
     log.info("dedupe: %s linked pairs at distance <= %d", f"{len(linked):,}", cfg.max_distance)
 
 
@@ -282,7 +300,7 @@ def build_splits(cfg: Config) -> None:
     folds = splits.loeo_folds(s.event, s.split, s.component, test_eligible=s.dataset == "crisismmd")
     s = pd.concat([s, folds], axis=1)
     s["has_label"] = s[LABELS].notna().any(axis=1)
-    s.to_parquet(OUT / "manifest.parquet", index=False)
+    atomic.parquet(OUT / "manifest.parquet", s)
 
     summary = splits.summary(s.split, s[OFFICIAL_SPLITS], s.component)
     official = s.set_index("sample_id")[OFFICIAL_SPLITS]
@@ -315,6 +333,7 @@ STEPS: dict[str, Callable[[Config], None]] = {
     "extract": extract,
     "manifests": manifests,
     "hash": hash_images,
+    "features": cache_features,
     "dedupe": dedupe,
     "audit": audit,
     "splits": build_splits,

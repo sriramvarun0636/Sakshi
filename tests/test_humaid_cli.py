@@ -41,3 +41,11 @@ def test_overlap_matches_ids_and_retweeted_text_but_not_short_texts():
 def test_cli_rejects_unknown_names(argv):
     with pytest.raises(SystemExit):
         cli.main(argv)
+
+
+@pytest.mark.parametrize(
+    "argv", [["prepare", "--max-distance", "13"], ["prepare", "--workers", "0"], ["download", "--parts", "0"]]
+)
+def test_cli_rejects_invalid_resource_options(argv):
+    with pytest.raises(SystemExit):
+        cli.main(argv)

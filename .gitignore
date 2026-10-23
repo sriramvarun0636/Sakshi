@@ -1,6 +1,7 @@
 # Datasets and derived data are large and licensed separately; never commit them.
 # Anchored to the repository root so the source package src/sakshi/data/ is not ignored.
 /data/
+/runs/
 
 .venv/
 __pycache__/

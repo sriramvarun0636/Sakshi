@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from sakshi import atomic
+
 
 def _load(report_dir: Path, name: str) -> Any:
     p = report_dir / name
@@ -158,5 +160,5 @@ def write_tables(report_dir: Path) -> Path:
         out += ["### Leave-one-event-out folds", "", _table(rows, ["held-out event", *roles]), ""]
 
     path = report_dir / "tables.md"
-    path.write_text("\n".join(out))
+    atomic.text(path, "\n".join(out))
     return path

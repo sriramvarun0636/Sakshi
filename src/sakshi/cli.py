@@ -27,12 +27,18 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
 
     if args.command == "download":
+        if args.parts < 1:
+            parser.error("--parts must be positive")
         unknown = set(args.sources) - set(download.SOURCES)
         if unknown:
             parser.error(f"unknown sources: {', '.join(sorted(unknown))}")
         for name in args.sources or download.SOURCES:
             download.download(download.SOURCES[name], parts=args.parts)
     else:
+        if not 0 <= args.max_distance <= pipeline.STORE_MAX_DISTANCE:
+            parser.error(f"--max-distance must be between 0 and {pipeline.STORE_MAX_DISTANCE}")
+        if args.workers < 1:
+            parser.error("--workers must be positive")
         unknown = set(args.steps) - set(pipeline.STEPS)
         if unknown:
             parser.error(f"unknown steps: {', '.join(sorted(unknown))}")
