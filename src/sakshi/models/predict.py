@@ -171,7 +171,7 @@ class Predictor:
         )
         return cls(
             model,
-            load_tokenizer(config.model.text_encoder),
+            load_tokenizer(config.model.text_encoder, revision=config.model.text_revision),
             model_id=checkpoint["model_id"],
             device=selected_device,
             temperatures=temperatures,

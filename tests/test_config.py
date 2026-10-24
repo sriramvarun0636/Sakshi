@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -49,3 +50,17 @@ def test_seeds_and_run_directory_are_reproducible(tmp_path):
         config.create_run_dir(
             Run(), name="full", seed=0, fold="loeo_harvey", root=tmp_path, now=datetime(2026, 10, 23, 12, 0, tzinfo=timezone.utc)
         )
+
+
+def test_source_snapshot_preserves_original_identity_without_git(monkeypatch, tmp_path):
+    monkeypatch.setattr(config.paths, "REPO", tmp_path)
+
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git is unavailable")
+
+    monkeypatch.setattr(config.subprocess, "run", no_git)
+    identity = {"git_commit": "original-commit", "git_dirty": True}
+    (tmp_path / "source_provenance.json").write_text(json.dumps(identity))
+    environment = config.environment(model_id="full-s0", seed=0)
+    assert environment["git_commit"] == "original-commit"
+    assert environment["git_dirty"] is True and environment["source_snapshot"] == identity

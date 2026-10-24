@@ -83,7 +83,10 @@ def worker_init_fn(_worker_id: int) -> None:
 
 
 def _git(args: list[str]) -> str | None:
-    result = subprocess.run(["git", *args], cwd=paths.REPO, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["git", *args], cwd=paths.REPO, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None
     return result.stdout.strip() if result.returncode == 0 else None
 
 
@@ -95,9 +98,13 @@ def environment(*, model_id: str, seed: int, device: str | None = None, run_id: 
             packages[package] = version(package)
         except PackageNotFoundError:
             packages[package] = None
+    commit = _git(["rev-parse", "HEAD"])
+    snapshot_path = paths.REPO / "source_provenance.json"
+    snapshot = json.loads(snapshot_path.read_text()) if commit is None and snapshot_path.exists() else None
     return {
-        "git_commit": _git(["rev-parse", "HEAD"]),
-        "git_dirty": _git(["status", "--porcelain"]) != "",
+        "git_commit": commit if snapshot is None else snapshot["git_commit"],
+        "git_dirty": _git(["status", "--porcelain"]) != "" if snapshot is None else snapshot["git_dirty"],
+        "source_snapshot": snapshot,
         "python": sys.version.split()[0],
         "packages": packages,
         "device": device,

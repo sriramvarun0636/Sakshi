@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from importlib.metadata import version
 from pathlib import Path
+from time import perf_counter
 
 import pandas as pd
 import torch
@@ -15,10 +17,12 @@ from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 from sakshi import atomic, paths
+from sakshi.compute.files import hash_file
 from sakshi.config import create_run_dir, seed_everything, worker_init_fn
-from sakshi.models.data import ClassifierCollator, ClassifierDataset, FeatureStore, load_tokenizer
+from sakshi.models.data import ClassifierCollator, ClassifierDataset, FeatureStore, load_tokenizer, tokenization_stats
 from sakshi.models.fusion import HEAD_CLASSES, FusionClassifier, FusionConfig
 from sakshi.models.losses import IGNORE, class_weights, multitask_loss
+from sakshi.models.state import capture_rng, restore_rng
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +125,20 @@ def _move_batch(batch: dict, device: torch.device) -> tuple[dict[str, Tensor], d
     return inputs, targets
 
 
+def precision_for(device: torch.device) -> torch.dtype:
+    if device.type != "cuda":
+        return torch.float32
+    return torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
+
+
+def make_scaler(device: torch.device) -> torch.amp.GradScaler:
+    return torch.amp.GradScaler("cuda", enabled=device.type == "cuda" and precision_for(device) == torch.float16)
+
+
+def _torch_save(path: Path, payload: dict) -> None:
+    atomic.write(path, lambda temporary: torch.save(payload, temporary))
+
+
 def train_one_epoch(
     model: FusionClassifier,
     loader: DataLoader,
@@ -129,26 +147,31 @@ def train_one_epoch(
     weights: dict[str, Tensor],
     config: TrainConfig,
     device: torch.device,
+    *,
+    scaler: torch.amp.GradScaler | None = None,
 ) -> dict[str, float]:
     """Train one epoch; skip nonfinite batches and abort after ten such batches."""
     model.train()
     optimizer.zero_grad(set_to_none=True)
     use_amp = device.type == "cuda"
-    amp_dtype = torch.bfloat16 if use_amp and torch.cuda.is_bf16_supported() else torch.float16
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp and amp_dtype == torch.float16)
+    amp_dtype = precision_for(device)
+    scaler = scaler if scaler is not None else make_scaler(device)
     sums: dict[str, float] = {}
     counts: dict[str, int] = {}
     bad = 0
     pending = 0
+    updates = 0
+    overflows = 0
 
     def apply_update(group_size: int) -> None:
+        nonlocal updates, overflows
         scaler.unscale_(optimizer)
         if group_size != config.optim.grad_accum:
             correction = config.optim.grad_accum / group_size
             for parameter in model.parameters():
                 if parameter.grad is not None:
                     parameter.grad.mul_(correction)
-        nn.utils.clip_grad_norm_(model.parameters(), config.optim.grad_clip, error_if_nonfinite=True)
+        nn.utils.clip_grad_norm_(model.parameters(), config.optim.grad_clip, error_if_nonfinite=not scaler.is_enabled())
         previous_scale = scaler.get_scale()
         scaler.step(optimizer)
         scaler.update()
@@ -157,6 +180,9 @@ def train_one_epoch(
         # schedule must advance only with a real parameter update.
         if not scaler.is_enabled() or scaler.get_scale() >= previous_scale:
             scheduler.step()
+            updates += 1
+        else:
+            overflows += 1
 
     for index, batch in enumerate(loader):
         inputs, targets = _move_batch(batch, device)
@@ -190,6 +216,8 @@ def train_one_epoch(
     return {
         **{head: sums[head] / counts[head] for head in sums},
         "nonfinite_batches": float(bad),
+        "optimizer_updates": float(updates),
+        "overflow_updates": float(overflows),
         **{f"n_{head}": float(count) for head, count in counts.items()},
     }
 
@@ -228,8 +256,18 @@ def evaluate_dev(model: FusionClassifier, loader: DataLoader, device: torch.devi
     return scores
 
 
-def run_training(config: TrainConfig, *, output_dir: Path = paths.REPO / "runs" / "classifier") -> Path:
+def run_training(
+    config: TrainConfig, *, output_dir: Path = paths.REPO / "runs" / "classifier", resume_run: Path | None = None
+) -> Path:
     """Train and retain the best dev checkpoint, with reproducible run metadata."""
+    session_started = perf_counter()
+    if resume_run is not None:
+        from sakshi.config import load
+
+        if (Path(resume_run) / "evaluation_request.json").exists():
+            raise ValueError("cannot resume a run after its final evaluation inputs have been frozen")
+        if asdict(load(Path(resume_run) / "config.yaml", TrainConfig)) != asdict(config):
+            raise ValueError("resume config differs from the saved run; start a new run for configuration changes")
     if config.optim.batch_size < 1 or config.optim.grad_accum < 1 or config.optim.max_epochs < 1:
         raise ValueError("batch size, accumulation and epochs must be positive")
     if config.optim.patience < 1 or not 0 <= config.optim.warmup_ratio < 1:
@@ -250,7 +288,7 @@ def run_training(config: TrainConfig, *, output_dir: Path = paths.REPO / "runs" 
     )
     if not train_data or not dev_data:
         raise ValueError("training and dev splits must have supervised rows with usable inputs")
-    tokenizer = load_tokenizer(config.model.text_encoder)
+    tokenizer = load_tokenizer(config.model.text_encoder, revision=config.model.text_revision)
     train_loader = DataLoader(
         train_data,
         batch_size=config.optim.batch_size,
@@ -282,9 +320,64 @@ def run_training(config: TrainConfig, *, output_dir: Path = paths.REPO / "runs" 
         return max(0.0, (total_updates - step) / max(total_updates - warmup, 1))
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_multiplier)
-    run_dir, model_id = create_run_dir(
-        config, name=config.name, seed=config.seed, fold=config.fold, root=output_dir, device=str(device)
-    )
+    manifest_path = paths.PROCESSED / "manifest.parquet"
+    input_hashes = {"manifest": hash_file(manifest_path)}
+    source_root = Path(__file__).parents[1]
+    input_hashes["implementation"] = {
+        str(file.relative_to(source_root)): hash_file(file)
+        for file in [
+            *sorted(Path(__file__).parent.glob("*.py")),
+            source_root / "text.py",
+            source_root / "config.py",
+            source_root / "data" / "labels.py",
+        ]
+    }
+    input_hashes["execution"] = {
+        "torch": str(torch.__version__),
+        "packages": {
+            name: version(name) for name in ("transformers", "numpy", "pandas", "scikit-learn", "tokenizers", "emoji", "ftfy")
+        },
+        "device": str(device),
+        "cuda_device_count": torch.cuda.device_count() if device.type == "cuda" else 0,
+        "cuda_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+        "cuda_runtime": torch.version.cuda if device.type == "cuda" else None,
+    }
+    if hasattr(feature_store, "root"):
+        from sakshi.data.features import EMBED_FILE, INDEX_FILE, TOKENS_FILE
+
+        input_hashes.update({name: hash_file(feature_store.root / name) for name in (INDEX_FILE, TOKENS_FILE, EMBED_FILE)})
+    scaler = make_scaler(device)
+    records = []
+    best = float("-inf")
+    stale = 0
+    best_state = None
+    best_metrics = None
+    best_epoch = 0
+    start_epoch = 1
+    if resume_run is None:
+        run_dir, model_id = create_run_dir(
+            config, name=config.name, seed=config.seed, fold=config.fold, root=output_dir, device=str(device)
+        )
+        atomic.text(run_dir / "inputs.json", json.dumps(input_hashes, indent=2) + "\n")
+    else:
+        run_dir = Path(resume_run)
+        if json.loads((run_dir / "inputs.json").read_text()) != input_hashes:
+            raise ValueError("resume inputs differ from the saved run")
+        state = torch.load(run_dir / "last.pt", map_location="cpu", weights_only=True)
+        if state["config"] != asdict(config):
+            raise ValueError("resume state config differs from the saved run")
+        model_id = state["model_id"]
+        model.load_state_dict(state["state_dict"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        scaler.load_state_dict(state["scaler"])
+        records = state["records"]
+        best, stale = state["best"], state["stale"]
+        best_state, best_metrics, best_epoch = state["best_state"], state["best_metrics"], state["best_epoch"]
+        start_epoch = state["epoch"] + 1
+        restore_rng(state["rng"], generator)
+        del state
+        log.info("resuming %s at epoch %d", model_id, start_epoch)
     atomic.text(
         run_dir / "class_weights.json",
         json.dumps(
@@ -297,32 +390,78 @@ def run_training(config: TrainConfig, *, output_dir: Path = paths.REPO / "runs" 
         + "\n",
     )
     atomic.text(run_dir / "label_maps.json", json.dumps({head: HEAD_CLASSES[head] for head in enabled_heads}, indent=2) + "\n")
-    best = float("-inf")
-    stale = 0
-    for epoch in range(1, config.optim.max_epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, optimizer, scheduler, weights, config, device)
+    text_counts = tokenization_stats(rows, tokenizer, max_tokens=config.data.max_text_tokens, fold=config.fold)
+    atomic.text(run_dir / "tokenization.json", json.dumps(text_counts, indent=2) + "\n")
+    log.info("text truncation counts: %s", text_counts["splits"])
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+    for epoch in range(start_epoch, config.optim.max_epochs + 1):
+        if stale >= config.optim.patience:
+            break
+        epoch_started = perf_counter()
+        train_metrics = train_one_epoch(model, train_loader, optimizer, scheduler, weights, config, device, scaler=scaler)
+        if not train_metrics["optimizer_updates"]:
+            raise FloatingPointError("epoch produced no finite optimizer updates; no checkpoint was selected")
         dev_metrics = evaluate_dev(model, dev_loader, device)
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
         record = {
             "epoch": epoch,
             "train": train_metrics,
             "dev": dev_metrics,
             "lr": [group["lr"] for group in optimizer.param_groups],
+            "epoch_compute_seconds": perf_counter() - epoch_started,
         }
-        with (run_dir / "train_log.jsonl").open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(record) + "\n")
+        records.append(record)
         log.info("epoch %d: dev selection macro-F1 %.4f", epoch, dev_metrics["selection_score"])
         if dev_metrics["selection_score"] > best + config.optim.min_delta:
             best = dev_metrics["selection_score"]
             stale = 0
-            atomic.write(
-                run_dir / "checkpoint.pt",
-                lambda temporary, epoch=epoch: torch.save(
-                    {"state_dict": model.state_dict(), "epoch": epoch, "model_id": model_id}, temporary
-                ),
-            )
-            atomic.text(run_dir / "metrics_dev.json", json.dumps(dev_metrics, indent=2) + "\n")
+            best_epoch, best_metrics = epoch, dev_metrics
+            best_state = {name: value.detach().to(device="cpu", copy=True) for name, value in model.state_dict().items()}
         else:
             stale += 1
-            if stale >= config.optim.patience:
-                break
+        state = {
+            "state_dict": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "scaler": scaler.state_dict(),
+            "rng": capture_rng(generator, device=device),
+            "epoch": epoch,
+            "config": asdict(config),
+            "model_id": model_id,
+            "records": records,
+            "best": best,
+            "stale": stale,
+            "best_state": best_state,
+            "best_metrics": best_metrics,
+            "best_epoch": best_epoch,
+        }
+        _torch_save(run_dir / "last.pt", state)
+        del state
+        atomic.text(run_dir / "train_log.jsonl", "".join(json.dumps(item) + "\n" for item in records))
+        if best_epoch == epoch:
+            _torch_save(run_dir / "checkpoint.pt", {"state_dict": best_state, "epoch": best_epoch, "model_id": model_id})
+            atomic.text(run_dir / "metrics_dev.json", json.dumps(best_metrics, indent=2) + "\n")
+    # last.pt is authoritative for recovery; regenerate the best checkpoint and logs
+    # from its state even if an interrupted session left those smaller artifacts ahead.
+    if best_state is None:
+        raise RuntimeError("training produced no valid best checkpoint")
+    _torch_save(run_dir / "checkpoint.pt", {"state_dict": best_state, "epoch": best_epoch, "model_id": model_id})
+    atomic.text(run_dir / "metrics_dev.json", json.dumps(best_metrics, indent=2) + "\n")
+    atomic.text(run_dir / "train_log.jsonl", "".join(json.dumps(record) + "\n" for record in records))
+    summary = {
+        "model_id": model_id,
+        "epochs_completed": len(records),
+        "best_epoch": best_epoch,
+        "resumed_after_epoch": start_epoch - 1,
+        "early_stopped": stale >= config.optim.patience,
+        "wall_seconds_this_session": perf_counter() - session_started,
+        "cumulative_epoch_compute_seconds": sum(record["epoch_compute_seconds"] for record in records),
+        "effective_batch_size": config.optim.batch_size * config.optim.grad_accum,
+        "device": str(device),
+        "precision": {torch.bfloat16: "bf16", torch.float16: "fp16", torch.float32: "fp32"}[precision_for(device)],
+        "peak_cuda_bytes": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None,
+    }
+    atomic.text(run_dir / "training_summary.json", json.dumps(summary, indent=2) + "\n")
     return run_dir

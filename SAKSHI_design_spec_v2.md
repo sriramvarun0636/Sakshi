@@ -672,6 +672,11 @@ our own normalisation above rather than the tokeniser's built-in one, `truncatio
 padding per batch. CrisisMMD tweets are at most 163 characters, so truncation is rare but
 MUST be handled.
 
+The tokenizer and text encoder use the same pinned revision,
+`b349c1243407b0dcffeabb2337497477286e27ab`, recorded as `model.text_revision` in the
+resolved classifier configuration. Per-split text/truncation counts are saved in
+`tokenization.json`.
+
 `sakshi.text.clean_for_display(text)` applies steps 1–4 and 6 but keeps emojis. Its output
 is the `text_clean` used in evidence packets and the UI, and it contains no handles or URLs
 (INV-07, INV-11).
@@ -779,10 +784,11 @@ documented paths.
 | Command | Purpose |
 |---|---|
 | `sakshi-data download` / `prepare [steps]` | Data (exists). WP0 adds the step `features` (§4.10) |
-| `sakshi-model train --config C [--seed S] [--fold loeo_<event>]` | Train a classifier run |
+| `sakshi-model train --config C [--seed S] [--fold loeo_<event>] [--resume R]` | Train or resume an unchanged classifier run |
 | `sakshi-model calibrate --run R` | Fit temperatures and abstention thresholds on dev |
 | `sakshi-model predict --run R --rows {official,extended,loeo,all,humaid}` | Write predictions |
-| `sakshi-model evaluate --run R` | Score official selectors; write metrics |
+| `sakshi-model evaluate --run R` | Freeze calibrated inputs, score official selectors once, reuse unchanged completed results |
+| `sakshi-gpu {bundle,check,smoke,final-evaluate,export,restore} ...` | Prepare private hosted inputs, verify/smoke training, freeze evaluation and transfer results |
 | `sakshi-baselines {late-fusion,clip-zeroshot,vlm-zeroshot} ...` | Baselines B3, B5, B6 |
 | `sakshi-provenance build-index` / `replay --event E` / `benchmark --config C` / `label-export` | WP2 |
 | `sakshi-explain {ig,gradcam,faithfulness,sanity,packets} --run R` | WP3 |
@@ -807,6 +813,13 @@ documented paths.
 | `model_id` | `run_id` without the timestamp; the stable name used in artefact paths |
 | Run directory `runs/classifier/<run_id>/` | `config.yaml` (resolved) · `env.json` · `checkpoint.pt` · `label_maps.json` · `class_weights.json` · `temperatures.json` · `thresholds.json` · `train_log.jsonl` · `metrics_dev.json` · `metrics_test.json` · `predictions_*.parquet` |
 | `env.json` | git commit, dirty flag, Python/torch/transformers versions, device, seed |
+
+Training additionally writes `inputs.json`, `tokenization.json`, `training_summary.json`
+and the atomic epoch recovery state `last.pt` (model, optimizer, scheduler, AMP scaler,
+sampler/random states and best dev state). `last.pt` is authoritative for epoch recovery.
+Resume requires unchanged configuration, implementation, data and recorded runtime.
+Final evaluation publishes `evaluation_request.json` before scoring and verifies stored
+artifact hashes through `evaluation_complete.json`; frozen runs cannot resume or recalibrate.
 
 ### 5.6 Reproducibility
 
@@ -872,9 +885,13 @@ Use `logging` (module-level `log = logging.getLogger(__name__)`), not `print`.
   shared through a **private** Kaggle Dataset or a private team drive, never publicly
   (dataset terms).
 - **Naming:** `<artefact>-<model_id or date>`, with a `SHA256SUMS` file next to it.
-- **Kaggle notebooks** attach the dataset read-only, `pip install -e` the repository (cloned
-  with a read-only token stored as a Kaggle secret), write to `/kaggle/working/runs/`, and
-  download results when done.
+- **Kaggle notebooks** attach the dataset read-only and `pip install -e` an exact source
+  snapshot. `sakshi-gpu bundle` packages checksummed source and prepared features for
+  `notebooks/train_classifier_kaggle.ipynb`; no clone credentials are needed. Cloning with
+  a read-only token stored as a Kaggle secret is an alternative. The notebook writes to
+  `/kaggle/working/sakshi/` and exports checksummed result parts of at most 768 MiB. Save
+  the private notebook version with output before ending the session. See
+  `docs/GPU_TRAINING.md` for preparation, recovery and local restore.
 
 ### 5.12 Secrets
 
@@ -919,7 +936,7 @@ These are estimates. The first full training run MUST be timed, and the table up
 - Train from **cached** CLIP features: the vision tower is frozen, so there is no reason to
   re-run it.
 - Use a live vision tower only for explanations (§9.2) and interactive mode.
-- **CUDA:** mixed precision (fp16 autocast with gradient scaling, or bf16 if supported). The
+- **CUDA:** mixed precision (fp16 autocast with gradient scaling, or bf16 with native hardware support). The
   loss is computed in fp32.
 - **MPS/CPU:** fp32 only. Set `PYTORCH_ENABLE_MPS_FALLBACK=1`.
 - Batch size 32. If memory is short, use 16 with 2 gradient-accumulation steps.

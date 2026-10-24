@@ -90,6 +90,22 @@ def test_fusion_rejects_empty_rows_and_can_disable_auxiliary_heads():
     assert set(output) == {"alpha", "informative", "humanitarian", "severity", "disaster_type"}
 
 
+def test_fusion_accepts_autocast_encoder_states_without_scatter_dtype_mismatch(monkeypatch):
+    model, encoder = tiny_model()
+    original = encoder.forward
+
+    def reduced_precision(**kwargs):
+        return SimpleNamespace(last_hidden_state=original(**kwargs).last_hidden_state.to(torch.bfloat16))
+
+    monkeypatch.setattr(encoder, "forward", reduced_precision)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        output = model(**batch())
+        loss = sum(value.float().square().mean() for key, value in output.items() if key != "alpha")
+    assert torch.isfinite(loss)
+    loss.backward()
+    assert encoder.embedding.weight.grad is not None and torch.isfinite(encoder.embedding.weight.grad).all()
+
+
 def test_focal_weights_masks_and_empty_heads():
     weights = class_weights(torch.tensor([100, 25, 0]))
     assert weights[1] > weights[0] and weights[2] == 0

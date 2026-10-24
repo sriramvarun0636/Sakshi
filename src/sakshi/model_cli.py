@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> None:
     train.add_argument("--seed", type=int)
     train.add_argument("--fold")
     train.add_argument("--output-dir", type=Path)
+    train.add_argument("--resume", type=Path, help="resume an unchanged run from its last completed epoch")
     calibrate = sub.add_parser("calibrate", help="fit dev temperatures and review thresholds")
     calibrate.add_argument("--run", type=Path, required=True)
     predict = sub.add_parser("predict", help="predict manifest rows from a trained run")
@@ -62,9 +63,9 @@ def main(argv: list[str] | None = None) -> None:
         Predictor.from_run(args.run).write_rows(manifest, output, batch_size=args.batch_size)
         return
     if args.command == "evaluate":
-        from sakshi.models.evaluate_run import evaluate_run
+        from sakshi.compute.runner import final_evaluate
 
-        evaluate_run(args.run)
+        final_evaluate(args.run)
         return
     config = load(args.config, TrainConfig)
     if args.seed is not None:
@@ -72,6 +73,10 @@ def main(argv: list[str] | None = None) -> None:
     if args.fold is not None:
         config = replace(config, fold=args.fold)
     kwargs = {"output_dir": args.output_dir} if args.output_dir else {}
+    if args.resume:
+        if args.output_dir:
+            parser.error("--resume uses its existing run directory; omit --output-dir")
+        kwargs["resume_run"] = args.resume
     run_training(config, **kwargs)
 
 

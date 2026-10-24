@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, WeightedRandomSampler
 from sakshi import paths
 from sakshi.data.features import TOKEN_SHAPE, TOKENS_FILE, load_index
 from sakshi.data.labels import HUMANITARIAN
-from sakshi.models.fusion import HEAD_CLASSES
+from sakshi.models.fusion import BERTWEET_REVISION, HEAD_CLASSES
 from sakshi.models.losses import IGNORE, mask_targets_for_dropout
 from sakshi.text import normalise_for_model
 
@@ -201,11 +201,36 @@ class ClassifierCollator:
         }
 
 
-def load_tokenizer(model_name: str = "vinai/bertweet-base") -> Any:
+def load_tokenizer(model_name: str = "vinai/bertweet-base", revision: str = BERTWEET_REVISION) -> Any:
     """Disable BERTweet's own tweet normaliser; texts already use sakshi.text."""
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, normalization=False)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision, normalization=False, use_fast=False)
     if len(tokenizer) < 1000:
         raise RuntimeError(f"tokenizer vocabulary for {model_name} is incomplete")
     return tokenizer
+
+
+def tokenization_stats(rows: pd.DataFrame, tokenizer: Any, *, max_tokens: int = 128, fold: str | None = None) -> dict:
+    """Count normalized text rows exceeding the token limit, independently per split."""
+    column = f"loeo_{fold.removeprefix('loeo_')}" if fold else "split"
+    result = {"max_tokens": max_tokens, "split_column": column, "splits": {}}
+    for role in ("train", "dev", "test"):
+        texts = [normalise_for_model(value) for value in rows.loc[rows[column] == role, "text"] if isinstance(value, str)]
+        texts = [value for value in texts if value is not None]
+        lengths = []
+        for start in range(0, len(texts), 256):
+            encoded = tokenizer(
+                texts[start : start + 256],
+                truncation=False,
+                padding=False,
+                return_attention_mask=False,
+                return_token_type_ids=False,
+            )
+            lengths.extend(len(ids) for ids in encoded["input_ids"])
+        result["splits"][role] = {
+            "text_rows": len(texts),
+            "truncated_rows": sum(length > max_tokens for length in lengths),
+            "longest_tokens": max(lengths, default=0),
+        }
+    return result

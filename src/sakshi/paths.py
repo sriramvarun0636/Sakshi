@@ -1,5 +1,6 @@
 """Filesystem layout. Everything under data/ is git-ignored."""
 
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -7,7 +8,8 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 DATA = REPO / "data"
 RAW = DATA / "raw"
-PROCESSED = DATA / "processed"
+# Set before importing sakshi when mounting cached inputs read-only on a GPU host.
+PROCESSED = Path(os.environ.get("SAKSHI_PROCESSED_DIR", DATA / "processed")).expanduser().resolve()
 REPORTS = REPO / "reports"
 
 CRISISMMD_SPLITS_ALL = RAW / "splits_all" / "crisismmd_datasplit_all"
