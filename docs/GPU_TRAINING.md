@@ -1,9 +1,12 @@
 # First classifier run on a hosted GPU
 
 Use [the training notebook](../notebooks/train_classifier_kaggle.ipynb) to train the
-standard-split classifier, calibrate on dev, and export its artifacts. The full CUDA run
-has not been executed locally. Its actual wall time, memory use and test metrics remain
-pending. CPU tests exercise the workflow with a small encoder.
+standard-split classifier, calibrate on dev, and export its artifacts. The first hosted
+CUDA run completed on 2026-10-24 and was restored locally as
+`runs/classifier/full-s0-20261024-062724/`: 14 minutes of training on one T4, best epoch
+5 of 8, batch 32, fp16. See the [dev run report](../reports/results/classifier_seed0_dev.md).
+Official trained-model tests remain unscored. CPU tests exercise the workflow with a
+small encoder; the hosted run also passed the full encoder's CUDA smoke.
 
 ## 1. Prepare the input bundle locally
 
@@ -59,6 +62,9 @@ from cache order.
    `prepared/` and the top-level inventory. Do not flatten the files.
 2. Import `notebooks/train_classifier_kaggle.ipynb` into a **private** notebook, attach
    the dataset, enable Internet and choose a GPU accelerator.
+   Kaggle may require account phone verification before enabling GPU and Internet.
+   A ZIP of the bundle can be uploaded with directory structure intact. Wait for dataset
+   processing to finish, then attach it from **Your Work → Datasets**.
 3. Leave `CONFIG_PATH = "configs/classifier/full.yaml"`, `SEED = 0`,
    `RESUME_RUN = None` and `FINAL_EVALUATION = False` for the first run.
 4. Run cells in order. If multiple input bundles are attached, set `BUNDLE_ROOT`
@@ -197,6 +203,13 @@ sakshi-gpu restore --export /path/to/downloaded-export --output runs/classifier/
 Restore verifies part ordering, sizes and hashes, verifies the exact archive member list,
 then verifies each artifact before publishing the restored directory. It rejects an
 existing output directory. The full run and exports stay under ignored `runs/`.
+
+In Kaggle's Output file tree, expand `sakshi/exports/<export_id>/` and download the
+individual archive parts. A browser may rename a `.zip.part001` download to `.zip.zip`;
+verify its exact byte count and SHA256 against `export.json`, then copy it to the declared
+part filename before restoring. JSON may open as a separate page; save its contents as
+`export.json`. Avoid downloading the entire notebook output: it also contains the Hugging
+Face cache and the much larger `last.pt` recovery state.
 
 When the first hosted run finishes, update `docs/BUILD_LOG.md` with the actual GPU,
 wall time, memory, best epoch, dev calibration findings and final-evaluation status. Update

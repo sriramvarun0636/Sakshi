@@ -915,12 +915,19 @@ Each team member has their own Kaggle quota. Spread runs across accounts (§14.3
 
 ### 6.2 Budget
 
-These are estimates. The first full training run MUST be timed, and the table updated.
+Estimates are retained for unmeasured jobs. The first full training run was timed on
+2026-10-24: seed 0, batch 32, fp16, one Tesla T4, cached image features. It stopped after
+8 epochs (best epoch 5), taking **13.98 min** for the training session, including input
+hashing and checkpoint writes; cumulative train/dev epoch compute was **13.23 min**.
+Peak allocated CUDA memory was **2.84 GiB** during training and **3.84 GiB** in the
+separate 128-token smoke. Kaggle exposed two T4s, but the trainer used one device.
+See `docs/BUILD_LOG.md` for the saved run and calibration findings. Other seeds and
+folds have not been timed; their estimates include headroom.
 
 | Job | Count | Estimate each (T4) | Total |
 |---|---|---|---|
 | CLIP feature cache | 1 | 5–10 min | 0.2 h |
-| Full model (cached image features, BERTweet fine-tuned, ≤ 10 epochs) | 3 seeds | 15–30 min | 1.5 h |
+| Full model (cached image features, BERTweet fine-tuned, ≤ 10 epochs) | 3 seeds | seed 0 measured 13.98 min; budget 15–30 min | budget 1.5 h |
 | Ablations (5 × 3 seeds) | 15 | 15–30 min | 7.5 h |
 | Single-task (4 heads × 3 seeds) | 12 | 10–25 min | 5 h |
 | Unimodal B1 (text), B2 (image) × 3 seeds | 6 | 5–20 min | 2 h |

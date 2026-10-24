@@ -13,7 +13,7 @@ situation reports in which every sentence is cited and verified.
 |---|---|
 | Data preparation: download, harmonisation, deduplication, leakage-free splits | complete — see [reports/data](reports/data/README.md) |
 | WP0 foundations: shared types, text/image loading, evaluation helpers, CLIP cache code | implemented; full 35,685-image CLIP cache built and checked |
-| WP1 classifier: fusion network, masked focal loss, training data, calibration, prediction, official evaluation | core and resumable GPU notebook implemented; CPU tests pass; full CUDA run pending; B5 evaluated |
+| WP1 classifier: fusion network, masked focal loss, training data, calibration, prediction, official evaluation | first full T4 run trained, dev-calibrated and restored locally; official trained-model tests and remaining experiments pending; B5 evaluated |
 | WP2 temporal provenance: index, graphics filter, decisions, replay | implemented; real 18,083-query replay complete; full injection benchmark pending |
 | WP4 aggregation: tweet rollup, claim clusters, evidence groups, ranking audit | CLI and scope/packet checks implemented; real MiniLM demonstration completed; LOEO research runs pending |
 | Explanations and verified report generation | planned |
@@ -60,8 +60,11 @@ sakshi-gpu bundle --output runs/transfer/gpu-inputs-20261024
 
 The notebook verifies the full cache, performs a bounded CUDA smoke, trains with epoch
 recovery, calibrates on dev and exports checksummed result parts. Actual CUDA training
-and timing remain pending. After training, fit dev calibration and score the official
-tests only when the configuration is final:
+completed on 2026-10-24: seed 0 trained in 14 minutes, selecting epoch 5 of 8. See the
+[dev run report](reports/results/classifier_seed0_dev.md) for results and calibration
+findings. The calibrated checkpoint is under ignored
+`runs/classifier/full-s0-20261024-062724/`. Score the official tests only when the
+configuration is final:
 
 ```bash
 sakshi-model calibrate --run runs/classifier/<run_id>

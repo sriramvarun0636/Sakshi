@@ -5,20 +5,23 @@ changes. The detailed requirements remain in [`SAKSHI_design_spec_v2.md`](../SAK
 
 ## Current state — 2026-10-24
 
-- Latest committed baseline: `009daf2` (WP4 workflow, ranking and packet validation),
-  following `db819c4` (WP0, WP1 core, B5, WP2 and initial WP4 algorithms). The user
-  pushed that baseline; the tree was clean when the GPU workflow session began.
-  Current GPU workflow changes are uncommitted.
+- Latest committed baseline: `f7fcf81` (hosted GPU workflow), following `009daf2`
+  (WP4 workflow, ranking and packet validation) and `db819c4` (WP0, WP1 core, B5, WP2
+  and initial WP4 algorithms). The user pushed the GPU workflow; the tree was clean
+  when the hosted launch session began. Current documentation/report updates are uncommitted.
 - The original data pipeline and prepared manifest were present before this session.
   `data/processed/manifest.parquet` has 35,685 images. The unified train/dev/test counts
   are 19,896 / 5,720 / 10,069. Official test selector counts were verified as
   1,534 / 955 / 529 / 1,138 / 3,213 for informative / humanitarian / severity /
   DMD severity / disaster type.
-- No fully trained BERTweet classifier checkpoint or trained-classifier test metrics
-  exist yet. The current unrestricted device check finds Apple MPS but no CUDA; the
-  earlier sandboxed check hid MPS. This is an 8 GiB machine. Full training/timing and
-  the experimental matrix need hosted CUDA compute. The notebook and local private
-  input bundle are now prepared; see `docs/GPU_TRAINING.md`.
+- The first full BERTweet classifier **trained and calibrated on Kaggle T4**, then its
+  16 exported artifacts were checksum-verified and restored to
+  `runs/classifier/full-s0-20261024-062724/`. Seed 0 selected epoch 5 of 8 with dev
+  selection macro-F1 **0.8189865**; training took **839.04 seconds**, peak allocation
+  **2.84 GiB**. See `reports/results/classifier_seed0_dev.md` and the session record below.
+  **No trained-classifier official test metrics exist yet**; `FINAL_EVALUATION` stayed
+  false. Other seeds/baselines/ablations/LOEO and the remaining work packages are pending.
+  This 8 GiB laptop has MPS but no CUDA; training remains a hosted task.
 - The full CLIP feature cache completed with **35,685/35,685 usable images**. The token
   array is 35,685×50×768 (`float16`, 2.6 GB); the embedding array is 35,685×512
   (`float32`, 70 MB). The sample of embedding norms checked was 0.99999988–1.00000012.
@@ -283,7 +286,10 @@ changes. The detailed requirements remain in [`SAKSHI_design_spec_v2.md`](../SAK
 - No cloud uploads, hosted jobs, new full model scores or commits were made. Existing
   B5 and aggregation demonstration artifacts were preserved.
 
-### Immediate handoff
+### Handoff before the hosted launch
+
+This preparation checkpoint is historical; the completed hosted run is recorded in the
+next session section.
 
 Follow `docs/GPU_TRAINING.md` to attach the private bundle and import the notebook on a
 CUDA host. Run preflight/smoke/training/calibration; review dev and measured timing, then
@@ -292,6 +298,97 @@ all export parts and restore the run locally. Record actual GPU/time/memory/dev 
 here and update the compute estimates in spec §6.2. The WP1 full-run acceptance criterion
 and trained-classifier metrics remain pending until that job completes. Next code
 milestone: WP3 Integrated Gradients, Grad-CAM, faithfulness and same-model packets.
+
+## Session — 2026-10-24: private Kaggle launch and completed seed 0 run
+
+- Started from clean commit `f7fcf81`. Verified the source, configs and notebook in the
+  existing bundle match the committed workspace. The bundle retains its original
+  `009daf2` plus dirty-source provenance, with exact bytes recorded in its inventory.
+- Created `runs/transfer/gpu-inputs-20261024.zip` with the bundle's 112 files and preserved
+  directories. Size: **2,604,810,407 bytes**. SHA256:
+  `cfd808bf7cc14d155264a45c4f12648caedb48600ebe1d05443c12bfe1c5bf9a`.
+  The original uncompressed bundle and existing datasets were preserved.
+- Connected Chrome to the user's signed-in Kaggle session. The user enabled the
+  extension's file-URL access after Chrome initially rejected file selection, and
+  completed Kaggle phone verification to unlock accelerator and Internet controls.
+  No API keys, phone numbers or SMS codes were read or stored.
+- Uploaded and created the **private** dataset
+  `https://www.kaggle.com/datasets/varun0636/sakshi-gpu-inputs-20261024`.
+  Version 1 finished processing: **112 files / 2.82 GB**, with `prepared/`, `source/`,
+  `bundle.json`, `preflight.json` and `SHA256SUMS` intact.
+- Imported `notebooks/train_classifier_kaggle.ipynb` into the **private** notebook
+  `https://www.kaggle.com/code/varun0636/sakshi-classifier-seed-0` and attached that
+  private dataset. Selected **GPU T4 x2**, enabled Internet, and retained the default
+  **full config / seed 0 / batch 32 / final evaluation disabled**. The trainer uses
+  one CUDA device. Kaggle reported 30 GPU hours available at setup.
+- Submitted **Version 1**, named `seed0 train and dev calibration`, using **Save & Run
+  All (Commit)** with GPU execution. Run URL:
+  `https://www.kaggle.com/code/varun0636/sakshi-classifier-seed-0?scriptVersionId=361702408`.
+  Startup verified all bundled bytes at the mounted path, installed the package against
+  hosted Python 3.13 / PyTorch 2.11.0+cu128 / Transformers 5.16.1, and passed data preflight.
+  The real CUDA smoke passed all three modality patterns at batch 32 / 128 padded tokens:
+  32.58 seconds, peak allocation 4,118,389,760 bytes (3.84 GiB). An initial fp16 overflow
+  recovered on the second both-modality attempt. The run subsequently completed training,
+  dev calibration and export successfully. No official tests have been scored.
+  PyTorch logged the spec-permitted nondeterministic attention warning under
+  `torch.use_deterministic_algorithms(True, warn_only=True)`; this run is not a claim
+  of bitwise CUDA reproducibility.
+- Machine-readable session state is kept under ignored
+  `runs/transfer/kaggle-session-20261024.json`. Future chats should inspect this state and
+  the existing saved version before submitting another run, to avoid duplicate jobs.
+- No model or algorithm changes were made in this launch session. The prior suite result
+  remains 133 passing tests; rerun relevant checks if implementation changes are needed.
+
+### Completion, artifacts and review
+
+- Kaggle confirmed **Successfully ran in 1060.1s** (17.67 minutes for the complete
+  notebook, including bootstrap, smoke, calibration and export). Training itself took
+  **839.0367s**, with **793.9651s** cumulative train/dev epoch compute. Effective batch
+  32, fp16, one Tesla T4; peak training allocation **3,050,460,672 bytes** (2.84 GiB).
+  Eight epochs completed; early stopping selected **epoch 5**. Dev selection scores:
+  `0.799277, 0.807511, 0.802992, 0.814568, 0.818987, 0.815096, 0.812008, 0.811964`.
+- Best checkpoint's **dev** macro-F1: informative **0.920990**, hierarchical humanitarian
+  **0.809715**, raw severity on labelled rows **0.702408**, disaster type **0.842833**.
+  These checkpoint-selection scores must not be compared directly to B5's official-test
+  scores. They are not the final trained-classifier research results.
+- Audited every saved epoch: **3,996 optimizer updates**, **four skipped fp16 overflow
+  updates** (three in epoch 1, one in epoch 3), **zero nonfinite loss batches**. All eight
+  heads received supervision. Hosted tokenization recorded zero truncations in every split.
+- Dev calibration fit all four temperatures without fallback. ECE before → after:
+  informative `0.037392 → 0.008647`, conditional humanitarian `0.027770 → 0.015379`,
+  severity `0.035622 → 0.038404`, disaster type `0.061678 → 0.017262`.
+  **Recorded §7.15 calibration exception:** severity ECE increased by 0.002782, while
+  NLL improved `0.590183 → 0.590087`. The prescribed NLL-fit temperature was retained;
+  calibration was not retuned. The humanitarian calibration figures are conditional
+  four-class metrics; its selection score above uses the hierarchical five-class output.
+  Abstention thresholds `tau_inf=0.5`, `tau_hum=0.9` give dev coverage **90.7465%** and
+  covered humanitarian macro-F1 **0.877398**. This is a dev-selected operating point.
+- Downloaded the **524,891,643-byte** export part from the saved private notebook.
+  Its SHA256 is `bae23e1f3397257833e72808f870c82a822b436b7e4a4435e2572cbf94502f6c`.
+  Chrome named it `~/Downloads/full-s0-20261024-062724.zip.zip`; after verifying the
+  hash, copied it to its declared `.zip.part001` name. Saved the exact exported JSON
+  inventory from Kaggle's file page under `runs/transfer/kaggle-output-361702408/`.
+  `sakshi-gpu restore` verified the part, archive member list and all **16 artifact
+  hashes**, then published `runs/classifier/full-s0-20261024-062724/`.
+  Checkpoint SHA256: `3c1219674106656eba6bf7e3a3ecfbb04ece0c16c81df35e88dd21f794371e53`.
+  The best checkpoint is 599,224,881 bytes; `last.pt` remains on Kaggle and was excluded
+  from the download. Preserve saved Version 1 for hosted resume/final evaluation.
+- Verified all **18 local input/implementation hashes** against hosted `inputs.json`.
+  Loaded the real checkpoint with strict state loading on CPU, checked every parameter
+  for finiteness, and inferred a dev sample with both modalities, text only and image
+  only. All three passed probability, hierarchy and missing-modality assertions. The
+  inference check took 6.04s including model load; it is not a serving-latency benchmark.
+  Audit files: `artifact_audit.json` and `local_inference_check.json` in the transfer
+  folder. The first offline attempt used an empty default Hugging Face cache; rerunning
+  with the existing `HF_HOME=/private/tmp/sakshi_hf_cache` succeeded without downloads.
+- Updated the current README status, GPU guide (account verification, ZIP upload and
+  browser filename handling), measured compute figures in spec §6.2, and the
+  dev run report. Model/data files and detailed session state remain ignored by Git.
+- Validation for this session: real hosted smoke/train/calibration/export, verified
+  restore, local input/implementation audit and real-checkpoint inference all passed.
+  `git diff --check` passed. The previous automated suite remains **133 passed**; no
+  package, config, test or notebook code changed, so the suite was not rerun for these
+  documentation/report changes. No commits or pushes were made.
 
 ## Checks and findings
 
@@ -311,11 +408,12 @@ milestone: WP3 Integrated Gradients, Grad-CAM, faithfulness and same-model packe
 
 ## Next actions
 
-1. Execute the prepared notebook's first full classifier on hosted CUDA using the private
-   input bundle and `docs/GPU_TRAINING.md`; time it, calibrate on dev, freeze once and
-   evaluate official selectors. No trained-model test metrics exist yet.
-2. Implement WP3 explanations and packet production, using the trained run when it is
-   available. Then continue WP5 verification/generation and WP6.
+1. First hosted full classifier training, calibration and verified local restore are
+   complete. Use `runs/classifier/full-s0-20261024-062724/` for WP3. Preserve Kaggle
+   Version 1 and its recovery state. Freeze and score official selectors once the
+   configuration is final; no trained-model test metrics exist yet.
+2. Implement WP3 explanations and packet production with the trained run. Then continue
+   WP5 verification/generation and WP6.
 3. Run the full nine-transformation, four-rate, three-seed injection benchmark on suitable
    GPU compute; review the fixed-role threshold selection and generated tables/figures.
    The 0.5 graphic threshold still needs tuning or explicit validation on tuning data.
@@ -331,5 +429,7 @@ milestone: WP3 Integrated Gradients, Grad-CAM, faithfulness and same-model packe
 
 Read this log, `README.md` and the relevant section of `SAKSHI_design_spec_v2.md`. Inspect
 `git status --short` and the feature-cache index before running any expensive job. The
-latest committed baseline is `009daf2`; inspect the working tree for subsequent changes.
+latest committed baseline is `f7fcf81`; inspect the working tree for subsequent changes.
 For the GPU workflow, read `docs/GPU_TRAINING.md` and use the bundle/notebook named above.
+The first run is already complete: inspect its restored files and session JSON before
+launching another job. Do not repeat training just to recover already saved artifacts.
