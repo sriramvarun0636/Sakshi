@@ -5,17 +5,20 @@ changes. The detailed requirements remain in [`SAKSHI_design_spec_v2.md`](../SAK
 
 ## Current state — 2026-10-24
 
-- The user committed and pushed the previous work as `db819c4` (WP0, WP1 core, B5,
-  WP2 and the initial WP4 algorithms). The working tree was clean when work resumed
-  on 2026-10-24. New changes in this session are uncommitted.
+- Latest committed baseline: `009daf2` (WP4 workflow, ranking and packet validation),
+  following `db819c4` (WP0, WP1 core, B5, WP2 and initial WP4 algorithms). The user
+  pushed that baseline; the tree was clean when the GPU workflow session began.
+  Current GPU workflow changes are uncommitted.
 - The original data pipeline and prepared manifest were present before this session.
   `data/processed/manifest.parquet` has 35,685 images. The unified train/dev/test counts
   are 19,896 / 5,720 / 10,069. Official test selector counts were verified as
   1,534 / 955 / 529 / 1,138 / 3,213 for informative / humanitarian / severity /
   DMD severity / disaster type.
-- No trained BERTweet classifier checkpoint or trained-classifier test metrics exist yet. The machine
-  reports no CUDA or MPS device, so the full training and baseline matrix need suitable
-  GPU compute as described in the spec.
+- No fully trained BERTweet classifier checkpoint or trained-classifier test metrics
+  exist yet. The current unrestricted device check finds Apple MPS but no CUDA; the
+  earlier sandboxed check hid MPS. This is an 8 GiB machine. Full training/timing and
+  the experimental matrix need hosted CUDA compute. The notebook and local private
+  input bundle are now prepared; see `docs/GPU_TRAINING.md`.
 - The full CLIP feature cache completed with **35,685/35,685 usable images**. The token
   array is 35,685×50×768 (`float16`, 2.6 GB); the embedding array is 35,685×512
   (`float32`, 70 MB). The sample of embedding norms checked was 0.99999988–1.00000012.
@@ -196,9 +199,103 @@ changes. The detailed requirements remain in [`SAKSHI_design_spec_v2.md`](../SAK
   `git diff --check` passed. A wheel was built under `/private/tmp/sakshi-wheel-check`;
   its packet schema and CLI entries were verified. No commits were created in this session.
 
+## Session — 2026-10-24: reproducible hosted classifier workflow
+
+### Changes
+
+- Added `notebooks/train_classifier_kaggle.ipynb`, with clean outputs and ordered cells
+  for verified source staging, constrained dependency installation, CUDA/data checks,
+  a bounded smoke, timed full training, dev calibration, optional frozen official
+  evaluation and checksummed export. It imports the tested package functions. Official
+  evaluation is **disabled by default**. No account credentials or automatic uploads.
+- Added `docs/GPU_TRAINING.md`; updated README and relevant spec sections for the CLI,
+  pinned encoder, recovery files and private source-bundle workflow. A source snapshot
+  replaces the need for a private Git clone token; the spec still allows cloning.
+- Added `sakshi-gpu` and `compute/{bootstrap,bundle,files,preflight,runner}.py`. The bundle
+  allowlists source/docs/configs/tests/notebook plus exactly four prepared files. It
+  records original Git identity and every file's size/SHA256; bootstrap checks all bytes
+  using the standard library before pip/imports, rejects unsafe paths and stale/changed
+  workspace source, and leaves the large arrays on the read-only input mount.
+- Added `SAKSHI_PROCESSED_DIR` relocation in `paths.py`, set before package imports.
+  `config.environment` preserves original source identity when running the staged
+  snapshot without Git, including hosts without a Git executable.
+- Preflight checks exact sample-ID coverage, cache shape/dtype/availability, every value's
+  finiteness, embedding norms, zero missing-image rows, tweet/component split isolation,
+  official selectors and standard training-label counts.
+- Pinned both BERTweet model and tokenizer to
+  `b349c1243407b0dcffeabb2337497477286e27ab`; explicitly disabled built-in normalization
+  and fast tokenization. The ML dependency now requires PyTorch >=2.6, matching current
+  Transformers' loader requirement for the pinned `.bin` weights. The notebook constrains
+  the existing CUDA PyTorch version rather than installing a replacement CUDA stack.
+- Added explicit `configs/classifier/t4.yaml` (name `full-t4`, batch 16, accumulation 2).
+  The default full config remains batch 32. Smoke uses the actual microbatch and pads
+  text to 128 tokens; it checks head shapes/gates and real updates for both, text-only
+  and image-only inputs. CUDA memory failure requests an explicit config change.
+- Added `models/state.py` and `sakshi-model train --resume`: atomic `last.pt` includes
+  current/best model, optimizer, scheduler, AMP scaler, sampler and CPU/CUDA/MPS/Python/
+  NumPy RNG states, records and early-stop state. Resume checks saved config, manifest,
+  feature bytes, training implementation and key runtime versions/device identity.
+  Recovery starts after the last completed epoch; partial epochs repeat. Best checkpoint,
+  metrics and logs are reconstructed from the authoritative recovery state.
+- Retained GradScaler across epochs; clipping now lets fp16 scaler overflow handling
+  skip updates, while other precision modes fail on nonfinite gradients. The scheduler
+  advances only on real optimizer updates. Native bf16 support is required, excluding
+  emulation so T4 uses fp16/scaling. Empty-update epochs fail. Fusion now converts reduced
+  precision encoder states to the scatter buffer dtype without detaching gradients.
+- Added `tokenization.json` with normalized text/truncation counts per split, and
+  `training_summary.json` with best/completed epochs, wall/epoch compute times, precision,
+  effective batch and peak CUDA memory. Model/data/source hashes are in `inputs.json`.
+- Added a final-evaluation wrapper used by both `sakshi-model evaluate` and `sakshi-gpu
+  final-evaluate`. It freezes model/config/calibration/maps/data/bootstrap hashes before
+  scoring, verifies/reuses completed results, and recovers publication interruptions.
+  Frozen runs cannot resume or recalibrate. Global official scoring rejects LOEO because
+  other events' official rows may have been used for training; a LOEO evaluator is pending.
+- Added allowlisted result export and verified restore. ZIP parts are at most 768 MiB,
+  streamed with 1 MiB buffers. All downloaded parts, archive membership and restored
+  artifact hashes are checked before publishing; existing destinations are preserved.
+  Best checkpoint is included; larger `last.pt` recovery state is opt-in.
+
+### Validation and local artifacts
+
+- **133 tests passed**. Tests cover exact CPU uninterrupted/interrupted/resumed equality
+  (weights, optimizer, scheduler, RNG, sampling and dropout), partial-artifact recovery,
+  changed-input/config/freeze rejection, simulated AMP overflow, native precision
+  selection, reduced-precision fusion gradients, cache corruption/leakage, bundle path
+  safety/source integrity, three-pattern training smoke, one-time evaluation/reuse and
+  multipart export/restore. All use small encoders and require no dataset/model download.
+- Notebook schema validation and compilation of every Python cell passed. Its real
+  bootstrap cell executed in an isolated Python process against a synthetic bundle.
+  **The notebook's hosted CUDA cells have not been executed.**
+- Ruff lint/format and `git diff --check` passed. A wheel under
+  `/private/tmp/sakshi-gpu-wheel-check` was inspected for the new modules, schema and
+  `sakshi-gpu` entry point; the installed CLI help was exercised.
+- The real full-array preflight passed: **35,685 usable images**, **19,896 training** /
+  **5,720 dev** rows; all eight training-label counts and five official-selector counts
+  match the fixed release. No official predictions or metrics were computed.
+- A real offline pinned-tokenizer audit found **zero truncated rows** in every split:
+  train 8,729 text rows / longest 61 tokens; dev 3,770 / 63; test 5,584 / 60. Audit:
+  `runs/transfer/tokenization-audit-20261024.json`. No model backward pass was attempted
+  on this 8 GiB laptop.
+- Local private-upload bundle path: **`runs/transfer/gpu-inputs-20261024/`**. The bundle
+  contains the prepared manifest/cache and this session's exact source snapshot. It is
+  ignored by Git. Keep the original directory structure for private Kaggle attachment.
+  Rebuild to a new output directory after future implementation changes.
+- No cloud uploads, hosted jobs, new full model scores or commits were made. Existing
+  B5 and aggregation demonstration artifacts were preserved.
+
+### Immediate handoff
+
+Follow `docs/GPU_TRAINING.md` to attach the private bundle and import the notebook on a
+CUDA host. Run preflight/smoke/training/calibration; review dev and measured timing, then
+enable final evaluation only after configuration freeze. Save private outputs, download
+all export parts and restore the run locally. Record actual GPU/time/memory/dev findings
+here and update the compute estimates in spec §6.2. The WP1 full-run acceptance criterion
+and trained-classifier metrics remain pending until that job completes. Next code
+milestone: WP3 Integrated Gradients, Grad-CAM, faithfulness and same-model packets.
+
 ## Checks and findings
 
-- Latest full suite: **107 passed** on 2026-10-24; lint, formatting and whitespace checks
+- Latest full suite: **133 passed** on 2026-10-24; lint, formatting and whitespace checks
   passed. Re-run appropriate checks after new implementation changes.
 - Every benchmark event had a sufficient older-image positive pool for the maximum 20%
   injection rate. The observed pool range was 4,480–20,896 sources; 472 CrisisMMD images
@@ -214,22 +311,25 @@ changes. The detailed requirements remain in [`SAKSHI_design_spec_v2.md`](../SAK
 
 ## Next actions
 
-1. Run the full nine-transformation, four-rate, three-seed injection benchmark on suitable
+1. Execute the prepared notebook's first full classifier on hosted CUDA using the private
+   input bundle and `docs/GPU_TRAINING.md`; time it, calibrate on dev, freeze once and
+   evaluate official selectors. No trained-model test metrics exist yet.
+2. Implement WP3 explanations and packet production, using the trained run when it is
+   available. Then continue WP5 verification/generation and WP6.
+3. Run the full nine-transformation, four-rate, three-seed injection benchmark on suitable
    GPU compute; review the fixed-role threshold selection and generated tables/figures.
    The 0.5 graphic threshold still needs tuning or explicit validation on tuning data.
-2. Have two reviewers label the exported pairs independently, then adjudicate and run
+4. Have two reviewers label the exported pairs independently, then adjudicate and run
    `sakshi-provenance label-score`. No human labels should be inferred from detector output.
-3. Run `ruff check .`, `ruff format --check .`, `pytest -q` and `git diff --check` after new work; fix any failure.
-4. Run the first full classifier on a CUDA T4, time it, calibrate on dev, predict held-out
-   rows and evaluate. No test metrics should be claimed until this is done.
-5. Implement the remaining WP1 baselines, ablations, LOEO and HumAID evaluation. Continue
-   WP3 explanations and packet production, then WP5 verification/generation and WP6.
+5. Implement the remaining WP1 baselines, ablations, LOEO and HumAID evaluation.
    The WP4 core/CLI/ranking harness is implemented; its research acceptance criteria await
    trained LOEO predictions and genuine same-model WP3 packets. `ranking_demo.md` must not
    be presented as the research `ranking.md`.
+6. Run `ruff check .`, `ruff format --check .`, `pytest -q` and `git diff --check` after new work; fix any failure.
 
 ## How to resume in another chat
 
 Read this log, `README.md` and the relevant section of `SAKSHI_design_spec_v2.md`. Inspect
 `git status --short` and the feature-cache index before running any expensive job. The
-latest committed baseline is `db819c4`; inspect the working tree for subsequent changes.
+latest committed baseline is `009daf2`; inspect the working tree for subsequent changes.
+For the GPU workflow, read `docs/GPU_TRAINING.md` and use the bundle/notebook named above.

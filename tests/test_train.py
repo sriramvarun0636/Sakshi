@@ -1,8 +1,11 @@
+import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 from torch import nn
 
@@ -94,7 +97,10 @@ def test_partial_accumulation_group_has_full_weight():
         torch.testing.assert_close(left, right)
 
 
-def test_training_run_writes_checkpoint_and_metadata_without_model_download(monkeypatch, tmp_path):
+@pytest.fixture
+def tiny_training(monkeypatch, tmp_path):
+    monkeypatch.setattr(training, "select_device", lambda requested="auto": torch.device("cpu"))
+
     class Store:
         def has_image(self, sample_id):
             return True
@@ -130,7 +136,7 @@ def test_training_run_writes_checkpoint_and_metadata_without_model_download(monk
     frame.to_parquet(processed / "manifest.parquet")
     monkeypatch.setattr(training.paths, "PROCESSED", processed)
     monkeypatch.setattr(training, "FeatureStore", Store)
-    monkeypatch.setattr(training, "load_tokenizer", lambda name: Tokenizer())
+    monkeypatch.setattr(training, "load_tokenizer", lambda name, **kwargs: Tokenizer())
     monkeypatch.setattr(training.FusionClassifier, "from_pretrained", classmethod(lambda cls, cfg: cls(TinyEncoder(), cfg)))
     _, model_config, _ = fixture()
     config = TrainConfig(
@@ -138,6 +144,11 @@ def test_training_run_writes_checkpoint_and_metadata_without_model_download(monk
         data=training.DataSettings(samples_per_epoch=4),
         optim=OptimSettings(batch_size=2, max_epochs=1, patience=1),
     )
+    return config, frame, Store
+
+
+def test_training_run_writes_checkpoint_and_metadata_without_model_download(monkeypatch, tmp_path, tiny_training):
+    config, frame, Store = tiny_training
     run_dir = training.run_training(config, output_dir=tmp_path / "runs")
     for filename in (
         "config.yaml",
@@ -151,7 +162,7 @@ def test_training_run_writes_checkpoint_and_metadata_without_model_download(monk
         assert (run_dir / filename).is_file()
     checkpoint = torch.load(run_dir / "checkpoint.pt", map_location="cpu", weights_only=True)
     assert checkpoint["epoch"] == 1
-    monkeypatch.setattr(prediction, "load_tokenizer", lambda name: Tokenizer())
+    monkeypatch.setattr(prediction, "load_tokenizer", training.load_tokenizer)
     predictor = prediction.Predictor.from_run(run_dir, device="cpu")
     predictor.features = Store()
     predictions = predictor.predict_rows(frame.iloc[:2])
@@ -162,3 +173,142 @@ def test_training_run_writes_checkpoint_and_metadata_without_model_download(monk
     assert (run_dir / "calibration_metrics.json").is_file()
     reloaded = prediction.Predictor.from_run(run_dir, device="cpu")
     assert all(value == 1.0 for value in reloaded.temperatures.values())
+
+
+def test_interrupted_resume_matches_uninterrupted_training(monkeypatch, tmp_path, tiny_training):
+    config, _, _ = tiny_training
+    config = replace(
+        config, model=replace(config.model, dropout=0.2, head_dropout=0.2), optim=replace(config.optim, max_epochs=3, patience=3)
+    )
+    uninterrupted = training.run_training(config, output_dir=tmp_path / "reference")
+    original = training.train_one_epoch
+    calls = 0
+
+    def interrupted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise InterruptedError("simulated session interruption")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(training, "train_one_epoch", interrupted)
+    with pytest.raises(InterruptedError):
+        training.run_training(config, output_dir=tmp_path / "interrupted")
+    resumed = next((tmp_path / "interrupted").iterdir())
+    assert torch.load(resumed / "last.pt", weights_only=True)["epoch"] == 1
+    # Smaller artifacts can be absent or ahead of the last atomic epoch state.
+    (resumed / "train_log.jsonl").write_text("stale partial log")
+    (resumed / "metrics_dev.json").write_text("{}")
+    monkeypatch.setattr(training, "train_one_epoch", original)
+    training.run_training(config, resume_run=resumed)
+    reference = torch.load(uninterrupted / "last.pt", weights_only=True)
+    actual = torch.load(resumed / "last.pt", weights_only=True)
+
+    def same(left, right):
+        if isinstance(left, torch.Tensor):
+            torch.testing.assert_close(left, right, rtol=0, atol=0)
+        elif isinstance(left, dict):
+            assert left.keys() == right.keys()
+            for key in left:
+                same(left[key], right[key])
+        elif isinstance(left, (tuple, list)):
+            assert len(left) == len(right)
+            for a, b in zip(left, right, strict=True):
+                same(a, b)
+        else:
+            assert left == right
+
+    for key in ("state_dict", "optimizer", "scheduler", "scaler", "rng", "best_state", "best", "stale"):
+        same(reference[key], actual[key])
+    for ref, observed in zip(reference["records"], actual["records"], strict=True):
+        same(
+            {k: v for k, v in ref.items() if k != "epoch_compute_seconds"},
+            {k: v for k, v in observed.items() if k != "epoch_compute_seconds"},
+        )
+    assert len((resumed / "train_log.jsonl").read_text().splitlines()) == 3
+    assert json.loads((resumed / "metrics_dev.json").read_text()) == reference["best_metrics"]
+    # A completed resume restores artifacts without another training epoch.
+    training.run_training(config, resume_run=resumed)
+    same(actual["state_dict"], torch.load(resumed / "last.pt", weights_only=True)["state_dict"])
+
+
+def test_resume_rejects_changed_config_inputs_and_test_freeze(tmp_path, tiny_training):
+    config, frame, _ = tiny_training
+    run = training.run_training(config, output_dir=tmp_path / "runs")
+    with pytest.raises(ValueError, match="resume config differs"):
+        training.run_training(replace(config, seed=9), resume_run=run)
+    manifest = training.paths.PROCESSED / "manifest.parquet"
+    frame.assign(text="changed").to_parquet(manifest)
+    with pytest.raises(ValueError, match="resume inputs differ"):
+        training.run_training(config, resume_run=run)
+    (run / "evaluation_request.json").write_text("{}")
+    with pytest.raises(ValueError, match="frozen"):
+        training.run_training(config, resume_run=run)
+    with pytest.raises(ValueError, match="frozen"):
+        calibrate_run(run)
+
+
+def test_overflow_skips_optimizer_and_scheduler_update():
+    model, model_config, batch = fixture()
+    weights = {name: torch.ones(len(classes)) for name, classes in HEAD_CLASSES.items()}
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.001)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
+
+    class ControlledScaler:
+        """Inject one unscaled overflow, then emulate GradScaler's skipped step."""
+
+        value = 2.0
+        overflow = True
+
+        def is_enabled(self):
+            return True
+
+        def scale(self, loss):
+            return loss
+
+        def unscale_(self, optimizer):
+            if self.overflow:
+                next(model.parameters()).grad.fill_(float("inf"))
+
+        def get_scale(self):
+            return self.value
+
+        def step(self, optimizer):
+            if not self.overflow:
+                optimizer.step()
+
+        def update(self):
+            if self.overflow:
+                self.value /= 2
+                self.overflow = False
+
+    before = [p.detach().clone() for p in model.parameters()]
+    config = TrainConfig(model=model_config)
+    scaler = ControlledScaler()
+    stats = train_one_epoch(model, [batch], optimizer, scheduler, weights, config, torch.device("cpu"), scaler=scaler)
+    assert stats["overflow_updates"] == 1 and stats["optimizer_updates"] == 0
+    assert scheduler.last_epoch == 0
+    for a, b in zip(before, model.parameters(), strict=True):
+        torch.testing.assert_close(a, b, rtol=0, atol=0)
+    stats = train_one_epoch(model, [batch], optimizer, scheduler, weights, config, torch.device("cpu"), scaler=scaler)
+    assert stats["optimizer_updates"] == 1 and scheduler.last_epoch == 1
+
+
+def test_cuda_precision_uses_native_bf16_support_and_enables_fp16_scaling(monkeypatch):
+    enabled = []
+    native_bf16 = False
+
+    def supported(*, including_emulation):
+        assert including_emulation is False
+        return native_bf16
+
+    monkeypatch.setattr(torch.cuda, "is_bf16_supported", supported)
+    monkeypatch.setattr(torch.amp, "GradScaler", lambda device, **kwargs: enabled.append(kwargs["enabled"]))
+    assert training.precision_for(torch.device("cpu")) == torch.float32
+    assert training.precision_for(torch.device("cuda")) == torch.float16
+    training.make_scaler(torch.device("cuda"))
+    native_bf16 = True
+    assert training.precision_for(torch.device("cuda")) == torch.bfloat16
+    training.make_scaler(torch.device("cuda"))
+    training.make_scaler(torch.device("cpu"))
+    assert enabled == [True, False, False]

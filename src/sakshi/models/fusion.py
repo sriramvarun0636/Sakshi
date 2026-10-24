@@ -9,6 +9,8 @@ from torch import Tensor, nn
 
 from sakshi.data import labels
 
+BERTWEET_REVISION = "b349c1243407b0dcffeabb2337497477286e27ab"
+
 HUMANITARIAN_CONDITIONAL = [name for name in labels.HUMANITARIAN if name != "not_humanitarian"]
 HEAD_CLASSES = {
     "informative": labels.INFORMATIVE,
@@ -25,6 +27,7 @@ HEAD_CLASSES = {
 @dataclass(frozen=True)
 class FusionConfig:
     text_encoder: str = "vinai/bertweet-base"
+    text_revision: str = BERTWEET_REVISION
     text_hidden: int = 768
     image_hidden: int = 768
     image_tokens: int = 50
@@ -129,7 +132,7 @@ class FusionClassifier(nn.Module):
         from transformers import AutoModel
 
         config = config or FusionConfig()
-        return cls(AutoModel.from_pretrained(config.text_encoder), config)
+        return cls(AutoModel.from_pretrained(config.text_encoder, revision=config.text_revision), config)
 
     def forward(
         self,
@@ -159,7 +162,7 @@ class FusionClassifier(nn.Module):
         if torch.any(has_text):
             indices = torch.where(has_text)[0]
             encoded = self.text_encoder(input_ids=input_ids[indices], attention_mask=attention_mask[indices]).last_hidden_state
-            text_hidden = text_hidden.index_copy(0, indices, encoded)
+            text_hidden = text_hidden.index_copy(0, indices, encoded.to(dtype=text_hidden.dtype))
         text = self.text_projection(text_hidden) + self.text_embedding
         image = self.image_projection(image_tokens.to(dtype=self.image_projection[0].weight.dtype))
         image = image + self.image_embedding + self.image_positions

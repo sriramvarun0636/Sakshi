@@ -13,7 +13,7 @@ situation reports in which every sentence is cited and verified.
 |---|---|
 | Data preparation: download, harmonisation, deduplication, leakage-free splits | complete — see [reports/data](reports/data/README.md) |
 | WP0 foundations: shared types, text/image loading, evaluation helpers, CLIP cache code | implemented; full 35,685-image CLIP cache built and checked |
-| WP1 classifier: fusion network, masked focal loss, training data, calibration, prediction, official evaluation | implemented and CPU smoke tested; full model run pending; B5 CLIP zero-shot baseline evaluated |
+| WP1 classifier: fusion network, masked focal loss, training data, calibration, prediction, official evaluation | core and resumable GPU notebook implemented; CPU tests pass; full CUDA run pending; B5 evaluated |
 | WP2 temporal provenance: index, graphics filter, decisions, replay | implemented; real 18,083-query replay complete; full injection benchmark pending |
 | WP4 aggregation: tweet rollup, claim clusters, evidence groups, ranking audit | CLI and scope/packet checks implemented; real MiniLM demonstration completed; LOEO research runs pending |
 | Explanations and verified report generation | planned |
@@ -51,12 +51,28 @@ sakshi-model train --config configs/classifier/full.yaml --seed 0
 The command saves the best dev checkpoint, class weights, label order, per-epoch logs and
 run metadata under the ignored `runs/classifier/` directory. The full model is intended
 for a CUDA GPU; CPU tests use a small synthetic encoder and do not download model weights.
-After training, fit dev calibration and write test predictions:
+For hosted training, use the [Kaggle notebook](notebooks/train_classifier_kaggle.ipynb)
+and [GPU training guide](docs/GPU_TRAINING.md). Prepare its private input folder locally:
+
+```bash
+sakshi-gpu bundle --output runs/transfer/gpu-inputs-20261024
+```
+
+The notebook verifies the full cache, performs a bounded CUDA smoke, trains with epoch
+recovery, calibrates on dev and exports checksummed result parts. Actual CUDA training
+and timing remain pending. After training, fit dev calibration and score the official
+tests only when the configuration is final:
 
 ```bash
 sakshi-model calibrate --run runs/classifier/<run_id>
-sakshi-model predict --run runs/classifier/<run_id> --rows official
 sakshi-model evaluate --run runs/classifier/<run_id>
+```
+
+Evaluation freezes calibrated inputs and reuses identical completed results. To recover
+an interrupted run with unchanged config, data, code and runtime:
+
+```bash
+sakshi-model train --config runs/classifier/<run_id>/config.yaml --resume runs/classifier/<run_id>
 ```
 
 The image-only B5 baseline uses the spec's fixed CLIP prompts and the same official
@@ -147,6 +163,7 @@ results comparable with published work, evaluate each head on the rows where
 src/sakshi/
   cli.py              sakshi-data command
   model_cli.py        sakshi-model command
+  gpu_cli.py          sakshi-gpu bundle, check, smoke, evaluation, export and restore
   paths.py            filesystem layout
   config.py           strict experiment config, seeds and run metadata
   data/
@@ -174,6 +191,8 @@ src/sakshi/
   aggregate/          scoped aggregation, packet checks and urgency ranking audits
   aggregate_cli.py    sakshi-aggregate command
   schemas/            evidence packet JSON Schema from the design spec
+  compute/            portable GPU inputs, preflight, smoke and result transfer
+notebooks/            hosted classifier training workflow
 tests/                unit tests (no dataset download required)
 reports/data/         data preparation report and generated statistics
 ```

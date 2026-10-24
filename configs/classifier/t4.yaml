@@ -1,0 +1,5 @@
+# Same effective batch and scientific settings as full.yaml; smaller GPU microbatch.
+name: full-t4
+optim:
+  batch_size: 16
+  grad_accum: 2

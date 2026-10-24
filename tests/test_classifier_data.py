@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from sakshi.data.features import EMBED_FILE, INDEX_FILE, TOKENS_FILE
-from sakshi.models.data import ClassifierCollator, ClassifierDataset, FeatureStore
+from sakshi.models.data import ClassifierCollator, ClassifierDataset, FeatureStore, tokenization_stats
 from sakshi.models.losses import IGNORE
 
 
@@ -85,3 +85,21 @@ def test_collation_never_drops_only_modality_and_masks_affected_heads(tmp_path):
         assert targets["informative_text"][0] == IGNORE
     if not inputs["has_image"][0]:
         assert targets["severity"][0] == IGNORE
+
+
+def test_tokenization_counts_include_special_tokens_and_exclude_unusable_text():
+    class Tokenizer:
+        def __call__(self, texts, **kwargs):
+            assert not kwargs["truncation"] and not kwargs["padding"]
+            return {"input_ids": [[0] * (len(text.split()) + 2) for text in texts]}
+
+    rows = pd.DataFrame(
+        {
+            "split": ["train", "train", "train", "dev", "test"],
+            "text": ["one two", "one two three", "https://example.org", None, "one"],
+        }
+    )
+    result = tokenization_stats(rows, Tokenizer(), max_tokens=4)
+    assert result["splits"]["train"] == {"text_rows": 2, "truncated_rows": 1, "longest_tokens": 5}
+    assert result["splits"]["dev"] == {"text_rows": 0, "truncated_rows": 0, "longest_tokens": 0}
+    assert result["splits"]["test"]["truncated_rows"] == 0
