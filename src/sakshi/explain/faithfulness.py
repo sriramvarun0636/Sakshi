@@ -58,8 +58,9 @@ def audit_modality(model, tokenizer, live, example: Example, head: str, *, text=
         inputs = dict(example.inputs)
         if selected is not None:
             if modality == "text":
-                inputs["input_ids"] = mask_text(inputs["input_ids"], text.groups, selected,
-                                                keep_only=keep_only, mask_token_id=tokenizer.mask_token_id)
+                inputs["input_ids"] = mask_text(
+                    inputs["input_ids"], text.groups, selected, keep_only=keep_only, mask_token_id=tokenizer.mask_token_id
+                )
             else:
                 inputs["image_tokens"] = live(mask_patches(example.pixels, selected, keep_only=keep_only))
         return float(model(**inputs)[head].float().softmax(-1)[0, target].cpu().item())
@@ -73,13 +74,24 @@ def audit_modality(model, tokenizer, live, example: Example, head: str, *, text=
     base = score(None, False)
     observed = ranking_curve(scores, score, base)
     random = [ranking_curve(np.random.default_rng(seed).random(len(scores)), score, base) for seed in range(5)]
-    random_mean = [{"k": percentage,
-                    **{metric: float(np.mean([curve[i][metric] for curve in random]))
-                       for metric in ("comprehensiveness", "sufficiency")}}
-                   for i, percentage in enumerate(PERCENTAGES)]
-    return {"post_id": example.post_id, "head": head, "target": getattr(example.prediction, head).label,
-            "modality": modality, "base_probability": base, "explainer": observed, "random": random_mean,
-            "random_seeds": list(range(5)),
-            "aopc": {method: {metric: float(np.mean([row[metric] for row in curve]))
-                              for metric in ("comprehensiveness", "sufficiency")}
-                     for method, curve in (("explainer", observed), ("random", random_mean))}}
+    random_mean = [
+        {
+            "k": percentage,
+            **{metric: float(np.mean([curve[i][metric] for curve in random])) for metric in ("comprehensiveness", "sufficiency")},
+        }
+        for i, percentage in enumerate(PERCENTAGES)
+    ]
+    return {
+        "post_id": example.post_id,
+        "head": head,
+        "target": getattr(example.prediction, head).label,
+        "modality": modality,
+        "base_probability": base,
+        "explainer": observed,
+        "random": random_mean,
+        "random_seeds": list(range(5)),
+        "aopc": {
+            method: {metric: float(np.mean([row[metric] for row in curve])) for metric in ("comprehensiveness", "sufficiency")}
+            for method, curve in (("explainer", observed), ("random", random_mean))
+        },
+    }

@@ -43,9 +43,11 @@ class Explainer:
         prediction = self.predictor._predict_batch([item])[0][0]
         encoded = self.predictor.tokenizer([model_text or ""], truncation=True, max_length=128, return_tensors="pt")
         inputs = {name: encoded[name].to(self.predictor.device) for name in ("input_ids", "attention_mask")}
-        inputs.update(image_tokens=torch.from_numpy(tokens.copy())[None].to(self.predictor.device),
-                      has_text=torch.tensor([model_text is not None], device=self.predictor.device),
-                      has_image=torch.tensor([has_image], device=self.predictor.device))
+        inputs.update(
+            image_tokens=torch.from_numpy(tokens.copy())[None].to(self.predictor.device),
+            has_text=torch.tensor([model_text is not None], device=self.predictor.device),
+            has_image=torch.tensor([has_image], device=self.predictor.device),
+        )
         pixels, size = None, None
         if has_image:
             image = load_rgb(paths.image_file(row))
@@ -57,26 +59,40 @@ class Explainer:
                 self.live.assert_cached(pixels, inputs["image_tokens"])
             finally:
                 image.close()
-        return Example(sample_id, model_text, clean_for_display(text) if model_text else None,
-                       inputs, prediction, pixels, size)
+        return Example(sample_id, model_text, clean_for_display(text) if model_text else None, inputs, prediction, pixels, size)
 
-    def explain(self, example: Example, head: str, output_dir: Path):
+    def explain(self, example: Example, head: str, output_dir: Path, *, modalities=("text", "image")):
         if head not in MAIN_HEADS:
             raise ValueError("only the four main heads have explanations")
+        if not modalities or set(modalities) - {"text", "image"}:
+            raise ValueError("choose text and/or image explanations")
         decision = getattr(example.prediction, head)
         if decision.status != "predicted":
             return None, None, None
-        text = integrated_gradients(self.predictor.model, self.predictor.tokenizer, example, head)
-        image = grad_cam(self.predictor.model, self.live, example, head) if example.pixels is not None else None
+        text = (
+            integrated_gradients(self.predictor.model, self.predictor.tokenizer, example, head) if "text" in modalities else None
+        )
+        image = (
+            grad_cam(self.predictor.model, self.live, example, head)
+            if "image" in modalities and example.pixels is not None
+            else None
+        )
+        if text is None and image is None:
+            return None, None, None
         heatmap_path = None
         if image is not None:
             name = sha256(example.post_id.encode()).hexdigest()[:24]
             heatmap_path = Path(output_dir) / f"{name}-{head}.npy"
             atomic.write(heatmap_path, lambda temporary: np.save(temporary, image.heatmap, allow_pickle=False))
         result = Explanation(
-            example.post_id, head, decision.label,
-            text.words if text else [], extract_spans(text.words, head) if text else [],
-            heatmap_path, image.regions if image else [], text.delta if text else None,
+            example.post_id,
+            head,
+            decision.label,
+            text.words if text else [],
+            extract_spans(text.words, head) if text else [],
+            heatmap_path,
+            image.regions if image else [],
+            text.delta if text else None,
             [*(text.flags if text else []), *(image.flags if image else [])],
             self.predictor.model_id,
         )

@@ -35,11 +35,16 @@ def _reset(module):
 
 @contextmanager
 def cascade(model, head: str, *, seed: int = 0):
-    modules = [("head", model.heads[head]),
-               ("cross_attention", model.blocks[-1] if len(model.blocks) else None),
-               ("gate", model.gate_network)]
-    saved = [(module, {name: tensor.detach().clone() for name, tensor in module.state_dict().items()})
-             for _, module in modules if module is not None]
+    modules = [
+        ("head", model.heads[head]),
+        ("cross_attention", model.blocks[-1] if len(model.blocks) else None),
+        ("gate", model.gate_network),
+    ]
+    saved = [
+        (module, {name: tensor.detach().clone() for name, tensor in module.state_dict().items()})
+        for _, module in modules
+        if module is not None
+    ]
     mps_state = torch.mps.get_rng_state() if torch.backends.mps.is_available() else None
 
     def steps():

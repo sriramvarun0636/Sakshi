@@ -75,7 +75,10 @@ def validate_selected(
         packet = packets[sample_id]
         row = manifest.loc[sample_id]
         prediction = predicted.loc[sample_id]
-        if packet["event"] != row.event or pd.Timestamp(packet["posted_at"]) != row.posted_at:
+        expected_event = None if pd.isna(row.event) else str(row.event)
+        expected_time = None if pd.isna(row.posted_at) else pd.Timestamp(row.posted_at)
+        actual_time = None if packet["posted_at"] is None else pd.Timestamp(packet["posted_at"])
+        if packet["event"] != expected_event or actual_time != expected_time:
             raise ValueError(f"packet context differs for {sample_id}")
         if packet["abstain"] != bool(prediction.abstain) or packet["provenance"]["status"] != statuses.loc[sample_id, "status"]:
             raise ValueError(f"packet abstention or provenance differs for {sample_id}")

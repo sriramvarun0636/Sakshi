@@ -358,6 +358,8 @@ class Explanation:
     image_heatmap_path: Path | None            # .npy, 14x14 float32 in [0, 1]
     image_regions: list[ImageRegion]
     ig_convergence_delta: float | None
+    flags: list[str] = field(default_factory=list)  # diagnostics; outside the LLM packet
+    model_id: str | None = None                   # must match the packet's prediction
 
 @dataclass(frozen=True)
 class GateResult:
@@ -695,6 +697,11 @@ is the `text_clean` used in evidence packets and the UI, and it contains no hand
 - 224 px input, 16 px patches, a 14×14 grid, 768-d hidden states, 512-d projection;
 - preprocessing with `CLIPImageProcessor` from the same checkpoint: shortest side to 224
   (bicubic), centre crop 224, CLIP mean and standard deviation.
+
+Implementation uses `AutoImageProcessor(..., backend="pil", use_fast=False)` explicitly.
+The completed cache was made with PIL; installing torchvision for Grad-CAM must not
+silently switch image-resize implementations. The live/cached check in §9.3 enforces
+this on the actual image before publishing an explanation.
 
 **Cached classifier features.** Run the vision tower and take `last_hidden_state` (197 ×
 768). Apply the tower's `post_layernorm` to every token. Keep the CLS token and
@@ -1614,6 +1621,9 @@ packets** (§9.7), the only view of a post the LLM receives (INV-07).
   with the image input held fixed at the post's real features.
 - **Baseline:** the same sequence with every non-special token replaced by `<pad>`; `<s>`
   and `</s>` are kept.
+  The attention mask and position IDs are held fixed at the real sequence. BERTweet's
+  automatic RoBERTa position-ID derivation otherwise moves positions when word IDs
+  become `<pad>`, adding an unattributed positional change to a word-layer integral.
 - **Steps:** `n_steps = 50`, `internal_batch_size = 16`, `return_convergence_delta = True`.
   If |δ| > 0.05 · |f(x) − f(baseline)|, re-run with 150 steps. Record the final δ.
 
@@ -1636,8 +1646,9 @@ followed by `ed` is one word. A word's score is the sum of its subword scores.
 
 ### 9.3 Image: Grad-CAM on the live CLIP tower
 
-The cached features cannot carry gradients, so explanations run the **live** featuriser
-`sakshi.models.featurize.ClipFeaturizer`. It is the frozen vision tower, then
+The cached features cannot carry gradients, so explanations run the **live** wrapper
+`sakshi.explain.gradcam.LiveClipFeaturizer`, sharing the pinned tower and processor from
+`sakshi.data.features.ClipFeaturizer`. It is the frozen vision tower, then
 `post_layernorm` on all tokens, then CLS plus 2×2 average pooling. Its output MUST equal
 the cached features within 1e-2 absolute, and a test asserts this on 5 images.
 
@@ -1715,6 +1726,10 @@ this fails, report it; do not change explainers after looking at test results (I
 
 ### 9.6 Randomisation sanity check (Adebayo et al., NeurIPS 2018)
 
+Sampling is per head: up to 100 posts from that head's official selector, stratified by
+the frozen predicted class with seed 0, as in §9.5. Sampled gated/unavailable rows remain
+in the counts and receive no explanation; reports state the actual number explained.
+
 1. On 100 test posts, re-initialise in cascade: the head MLP, then the last cross-attention
    block, then the gate.
 2. Recompute the attributions after each step.
@@ -1768,6 +1783,13 @@ Appendix E.1, and validation is a unit test.
 | E-X10 | Caption hallucination | Captions are marked model-generated. The verifier audit measures its effect, with a text-only-premise ablation (§11.8) |
 
 ### 9.9 Acceptance criteria (WP3)
+
+Implementation and operational commands are documented in `docs/EXPLAINABILITY.md`.
+Dev reports use `_dev` filenames and do not satisfy the formal test audit criterion.
+Test audits require completed frozen classifier evaluation and freeze the explanation
+protocol before inspecting attributions. `ig_unconverged` and other diagnostics are
+retained outside the schema-1.0 LLM packet. Captions may remain null until their separate
+Qwen generation job is executed.
 
 1. Unit tests: subword merging (including `@@`), span extraction, region extraction,
    coordinate mapping (with a synthetic crop), packet schema and packet privacy scan.

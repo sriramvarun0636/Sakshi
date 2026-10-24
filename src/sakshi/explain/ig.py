@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import numpy as np
@@ -73,7 +74,9 @@ def extract_spans(words: list[tuple[str, float]], head: str) -> list[TextSpan]:
         active = index < len(words) and words[index][1] > 0 and words[index][1] >= 0.1 * maximum
         if active:
             word = words[index][0]
-            active = word.strip(".,:;!?()[]").upper() not in {"@USER", "HTTPURL", "RT", "USER", "LINK"} and not PRIVATE.search(word)
+            active = word.strip(".,:;!?()").upper() not in {"@USER", "HTTPURL", "RT", "[USER]", "[LINK]"} and not PRIVATE.search(
+                word
+            )
         if active and start is None:
             start = index
         if not active and start is not None:
@@ -84,8 +87,10 @@ def extract_spans(words: list[tuple[str, float]], head: str) -> list[TextSpan]:
             runs.append((start, end, sum(score for _, score in words[start:end]) / total))
             start = None
     selected = sorted(runs, key=lambda run: (-run[2], run[0]))[:3]
-    return [TextSpan(f"T{i}", head, " ".join(word for word, _ in words[start:end]), start, end, score)
-            for i, (start, end, score) in enumerate(selected, 1)]
+    return [
+        TextSpan(f"T{i}", head, " ".join(word for word, _ in words[start:end]), start, end, score)
+        for i, (start, end, score) in enumerate(selected, 1)
+    ]
 
 
 @dataclass
@@ -96,6 +101,32 @@ class TextAttribution:
     output_difference: float
     steps: int
     flags: list[str]
+
+
+@contextmanager
+def fixed_positions(text_encoder, input_ids):
+    """Hold RoBERTa position IDs fixed when its word baseline contains pad tokens.
+
+    Otherwise pad IDs also change the positional embedding, which is outside the
+    attributed word-embedding layer and invalidates its completeness comparison.
+    """
+    position_embeddings = getattr(getattr(text_encoder, "embeddings", None), "position_embeddings", None)
+    padding_idx = getattr(position_embeddings, "padding_idx", None)
+    if padding_idx is None:
+        yield
+        return
+    mask = input_ids.ne(padding_idx).long()
+    positions = mask.cumsum(1) * mask + padding_idx
+
+    def before_forward(module, args, kwargs):
+        kwargs["position_ids"] = positions.expand(len(kwargs["input_ids"]), -1)
+        return args, kwargs
+
+    handle = text_encoder.register_forward_pre_hook(before_forward, with_kwargs=True)
+    try:
+        yield
+    finally:
+        handle.remove()
 
 
 def integrated_gradients(model, tokenizer, example: Example, head: str) -> TextAttribution | None:
@@ -118,13 +149,14 @@ def integrated_gradients(model, tokenizer, example: Example, head: str) -> TextA
         data["input_ids"] = input_ids
         return model(**data)[head][:, target]
 
-    with gradients(model):
+    with gradients(model), fixed_positions(model.text_encoder, ids):
         layer = model.text_encoder.get_input_embeddings()
         lig = LayerIntegratedGradients(forward, layer)
         difference = float((forward(ids) - forward(baseline)).detach().cpu().item())
         for steps in (50, 150):
-            attribution, delta = lig.attribute(ids, baselines=baseline, n_steps=steps,
-                                               internal_batch_size=16, return_convergence_delta=True)
+            attribution, delta = lig.attribute(
+                ids, baselines=baseline, n_steps=steps, internal_batch_size=16, return_convergence_delta=True
+            )
             delta_value = float(delta.detach().cpu().item())
             if abs(delta_value) <= 0.05 * abs(difference):
                 break
@@ -136,8 +168,7 @@ def integrated_gradients(model, tokenizer, example: Example, head: str) -> TextA
     flags = []
     if example.text_clean is not None and len(example.model_text.split()) == len(example.text_clean.split()):
         display = example.text_clean.split()
-        words = [(display[i] if word == example.model_text.split()[i] else word, score)
-                 for i, (word, score) in enumerate(words)]
+        words = [(display[i] if word == example.model_text.split()[i] else word, score) for i, (word, score) in enumerate(words)]
     else:
         flags.append("word_alignment_fallback")
         log.warning("%s: display/model word counts differ; using normalised words", example.post_id)

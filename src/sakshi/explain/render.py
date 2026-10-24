@@ -16,6 +16,8 @@ def blur_faces(image: Image.Image, *, detector=None) -> Image.Image:
 
     rgb = np.array(image.convert("RGB"))
     if detector is None:
+        if not hasattr(cv2, "CascadeClassifier"):
+            raise RuntimeError("face detector needs opencv-python-headless>=4.9,<5; refusing figure export")
         detector = cv2.CascadeClassifier(str(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"))
         if detector.empty():
             raise RuntimeError("face detector is unavailable; refusing figure export")

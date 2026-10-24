@@ -49,7 +49,7 @@ class ClipFeaturizer:
     def __init__(self, model_name: str = MODEL_NAME, revision: str = MODEL_REVISION, device: str = "auto") -> None:
         try:
             import torch
-            from transformers import CLIPImageProcessor, CLIPModel
+            from transformers import AutoImageProcessor, CLIPModel
         except ImportError as exc:
             raise ImportError("CLIP features require the 'ml' extra: pip install -e '.[ml]'") from exc
 
@@ -59,7 +59,9 @@ class ClipFeaturizer:
         self.torch = torch
         self.model_name = model_name
         self.revision = revision
-        self.processor = CLIPImageProcessor.from_pretrained(model_name, revision=revision)
+        # The cache was made with PIL. Installing torchvision (e.g. for Grad-CAM)
+        # must not silently change bicubic resizing and therefore the model inputs.
+        self.processor = AutoImageProcessor.from_pretrained(model_name, revision=revision, backend="pil", use_fast=False)
         self.model = CLIPModel.from_pretrained(model_name, revision=revision).to(device).eval()
         self.model.requires_grad_(False)
 

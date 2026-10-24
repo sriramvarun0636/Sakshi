@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -22,7 +23,7 @@ class CaptionCache:
         for row in frame.itertuples():
             if not isinstance(row.caption, str) or not row.caption.strip() or not isinstance(row.model, str):
                 raise ValueError("caption text and model must be nonempty strings")
-            if not isinstance(row.prompt_sha256, str) or len(row.prompt_sha256) != 64:
+            if not isinstance(row.prompt_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", row.prompt_sha256) is None:
                 raise ValueError("caption prompt identity is missing")
             value = {"text": clean_for_display(row.caption), "model": row.model, "model_generated": True}
             _privacy(value)

@@ -86,18 +86,21 @@ def crop_to_original(box: tuple[int, int, int, int], size: tuple[int, int]) -> t
     scale = 224 / min(width, height)
     off_x, off_y = (width * scale - 224) / 2, (height * scale - 224) / 2
     left, top, right, bottom = box
-    return (max(0, min(width, math.floor((left + off_x) / scale))),
-            max(0, min(height, math.floor((top + off_y) / scale))),
-            max(0, min(width, math.ceil((right + off_x) / scale))),
-            max(0, min(height, math.ceil((bottom + off_y) / scale))))
+    return (
+        max(0, min(width, math.floor((left + off_x) / scale))),
+        max(0, min(height, math.floor((top + off_y) / scale))),
+        max(0, min(width, math.ceil((right + off_x) / scale))),
+        max(0, min(height, math.ceil((bottom + off_y) / scale))),
+    )
 
 
 def crop_heatmap(heatmap: np.ndarray) -> np.ndarray:
     values = np.asarray(heatmap, dtype=np.float32)
     if values.shape != (14, 14):
         raise ValueError("heatmap must be 14×14")
-    return F.interpolate(torch.from_numpy(values.copy())[None, None], size=(224, 224),
-                         mode="bilinear", align_corners=False)[0, 0].numpy()
+    return F.interpolate(torch.from_numpy(values.copy())[None, None], size=(224, 224), mode="bilinear", align_corners=False)[
+        0, 0
+    ].numpy()
 
 
 def extract_regions(heatmap: np.ndarray, size: tuple[int, int], head: str) -> list[ImageRegion]:
@@ -118,8 +121,10 @@ def extract_regions(heatmap: np.ndarray, size: tuple[int, int], head: str) -> li
         y, x = np.where(mask)
         box = crop_to_original((int(x.min()), int(y.min()), int(x.max()) + 1, int(y.max()) + 1), size)
         regions.append((box, float(crop[mask].sum()) / total))
-    return [ImageRegion(f"I{i}", head, box, score)
-            for i, (box, score) in enumerate(sorted(regions, key=lambda r: (-r[1], r[0]))[:2], 1)]
+    return [
+        ImageRegion(f"I{i}", head, box, score)
+        for i, (box, score) in enumerate(sorted(regions, key=lambda r: (-r[1], r[0]))[:2], 1)
+    ]
 
 
 @dataclass
@@ -147,10 +152,13 @@ def grad_cam(classifier, live: LiveClipFeaturizer, example: Example, head: str) 
         def get_target_width_height(self, input_tensor):
             return (14, 14)
 
-    with gradients(wrapper):
-        with PatchGradCAM(model=wrapper, target_layers=[live.target_layer], reshape_transform=reshape_transform) as cam:
-            heatmap = cam(input_tensor=example.pixels.detach().clone().requires_grad_(True),
-                          targets=[ClassifierOutputTarget(target)])[0]
+    with (
+        gradients(wrapper),
+        PatchGradCAM(model=wrapper, target_layers=[live.target_layer], reshape_transform=reshape_transform) as cam,
+    ):
+        heatmap = cam(
+            input_tensor=example.pixels.detach().clone().requires_grad_(True), targets=[ClassifierOutputTarget(target)]
+        )[0]
     flags = []
     if not np.isfinite(heatmap).all() or float(np.max(heatmap)) <= 0:
         heatmap = np.zeros((14, 14), dtype=np.float32)

@@ -7,6 +7,22 @@ from sakshi import paths
 from sakshi.data import features
 
 
+def test_clip_preprocessing_stays_pil_when_torchvision_is_installed(monkeypatch):
+    import torch
+    import transformers
+
+    calls = []
+
+    def load_processor(*args, **kwargs):
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(transformers.AutoImageProcessor, "from_pretrained", load_processor)
+    monkeypatch.setattr(transformers.CLIPModel, "from_pretrained", lambda *args, **kwargs: torch.nn.Linear(1, 1))
+    features.ClipFeaturizer(device="cpu")
+    assert calls == [{"revision": features.MODEL_REVISION, "backend": "pil", "use_fast": False}]
+
+
 class FakeFeaturizer:
     def encode(self, images):
         tokens = np.empty((len(images), *features.TOKEN_SHAPE), dtype=np.float32)
