@@ -9,8 +9,10 @@ from datetime import datetime
 import pandas as pd
 
 from sakshi.data.humaid import MIN_MATCH_LENGTH, normalise_text
+from sakshi.data.labels import HUMANITARIAN, INFORMATIVE, SEVERITY
 from sakshi.data.splits import UnionFind
-from sakshi.text import normalise_for_model
+from sakshi.text import clean_for_display, normalise_for_model
+from sakshi.types import ProvStatus
 
 CATEGORY_URGENCY = {
     "affected_individuals": 1.0,
@@ -19,7 +21,7 @@ CATEGORY_URGENCY = {
     "other_relevant_information": 0.3,
 }
 SEVERITY_URGENCY = {"severe_damage": 1.0, "mild_damage": 0.5, "little_or_no_damage": 0.1, None: 0.3}
-SEVERITY_ORDER = {"little_or_no_damage": 0, "mild_damage": 1, "severe_damage": 2}
+SEVERITY_ORDER = {name: i for i, name in enumerate(SEVERITY)}
 EXCLUDED = {"recycled", "template_match"}
 REVIEW = {"cross_event_concurrent", "match_undated"}
 
@@ -41,6 +43,7 @@ class Tweet:
     confidence: float
     informative_probability: float
     component_ids: tuple[int, ...]
+    grouping_text: str | None = None
 
     @property
     def eligible(self) -> bool:
@@ -91,6 +94,19 @@ def rollup_samples(manifest: pd.DataFrame, predictions: pd.DataFrame, provenance
         raise ValueError("every manifest sample needs a prediction and a provenance result")
     if rows.posted_at.isna().any() or rows.event.isna().any():
         raise ValueError("tweet aggregation needs dated, event-labelled rows")
+    if not rows.status.isin([status.value for status in ProvStatus]).all():
+        raise ValueError("unknown provenance status")
+    if not rows.informative_label.isin(INFORMATIVE).all() or not rows.humanitarian_label.isin(HUMANITARIAN).all():
+        raise ValueError("aggregation needs canonical informative and humanitarian predictions")
+    if not (rows.severity_label.isna() | rows.severity_label.isin(SEVERITY)).all():
+        raise ValueError("unknown severity prediction")
+    if rows.abstain.isna().any() or not rows.abstain.map(lambda value: isinstance(value, bool)).all():
+        raise ValueError("abstention values must be booleans")
+    probabilities = pd.to_numeric(rows["p_informative__informative"], errors="raise")
+    if not probabilities.between(0, 1).all():
+        raise ValueError("informative probabilities must be finite and in [0, 1]")
+    if any(value.tzinfo is None for value in rows.posted_at):
+        raise ValueError("tweet aggregation needs timezone-aware timestamps")
     rows["tweet_key"] = rows.tweet_id.astype("string").fillna("sample:" + rows.sample_id.astype(str))
     tweets = []
     for tweet_id, group in rows.groupby("tweet_key", sort=False):
@@ -134,7 +150,7 @@ def rollup_samples(manifest: pd.DataFrame, predictions: pd.DataFrame, provenance
                 representative_id=str(representative.sample_id),
                 posted_at=representative.posted_at.to_pydatetime(),
                 event=str(representative.event),
-                text_clean=normalise_for_model(text) if text is not None else None,
+                text_clean=clean_for_display(text) if normalise_for_model(text) is not None else None,
                 informative_label=str(representative.informative_label),
                 humanitarian_label=category,
                 severity_label=severity,
@@ -144,6 +160,7 @@ def rollup_samples(manifest: pd.DataFrame, predictions: pd.DataFrame, provenance
                 confidence=confidence,
                 informative_probability=informative_probability,
                 component_ids=tuple(sorted(set(group.component.astype(int)))),
+                grouping_text=normalise_text(text) if text is not None else None,
             )
         )
     return tweets
@@ -162,14 +179,14 @@ def evidence_groups(tweets: list[Tweet]) -> dict[str, int]:
                 uf.union(position, by_component[component])
             else:
                 by_component[component] = position
-        if tweet.text_clean is not None:
-            normalized = normalise_text(tweet.text_clean)
+        if tweet.grouping_text is not None or tweet.text_clean is not None:
+            normalized = tweet.grouping_text if tweet.grouping_text is not None else normalise_text(tweet.text_clean)
             if len(normalized) >= MIN_MATCH_LENGTH:
                 if normalized in by_text:
                     uf.union(position, by_text[normalized])
                 else:
                     by_text[normalized] = position
-    return {tweet.tweet_id: uf.find(position) for position, tweet in enumerate(tweets)}
+    return {tweet.tweet_id: int(uf.find(position)) for position, tweet in enumerate(tweets)}
 
 
 def priority(tweet: Tweet, corroboration: int) -> float:
@@ -185,6 +202,25 @@ def priority(tweet: Tweet, corroboration: int) -> float:
     return tweet.confidence * (0.5 * u_cat + 0.3 * u_sev + 0.2 * corr) * prov
 
 
+def rank_posts(
+    tweets: list[Tweet],
+    cluster_ids: dict[str, int],
+    group_ids: dict[str, int],
+) -> list[tuple[float, Tweet]]:
+    """Rank eligible tweets before diversity caps; share the ranking with evaluation."""
+    eligible = [tweet for tweet in tweets if tweet.eligible]
+    ids = {tweet.tweet_id for tweet in eligible}
+    if len(ids) != len(eligible):
+        raise ValueError("tweet IDs must be unique")
+    if ids - set(cluster_ids) or ids - set(group_ids):
+        raise ValueError("eligible tweets need claim cluster and evidence group IDs")
+    cluster_groups: dict[int, set[int]] = {}
+    for tweet in eligible:
+        cluster_groups.setdefault(cluster_ids[tweet.tweet_id], set()).add(group_ids[tweet.tweet_id])
+    scored = [(priority(tweet, len(cluster_groups[cluster_ids[tweet.tweet_id]])), tweet) for tweet in eligible]
+    return sorted(scored, key=lambda item: (-item[0], item[1].tweet_id))
+
+
 def select_posts(
     tweets: list[Tweet],
     cluster_ids: dict[str, int],
@@ -197,14 +233,7 @@ def select_posts(
     """Rank by fixed priority, apply diversity caps, then assign packet-local IDs."""
     if min(limit, per_category, per_group) < 1:
         raise ValueError("selection limits must be positive")
-    eligible = [tweet for tweet in tweets if tweet.eligible]
-    if set(tweet.tweet_id for tweet in eligible) - set(cluster_ids) or set(tweet.tweet_id for tweet in eligible) - set(group_ids):
-        raise ValueError("eligible tweets need claim cluster and evidence group IDs")
-    cluster_groups: dict[int, set[int]] = {}
-    for tweet in eligible:
-        cluster_groups.setdefault(cluster_ids[tweet.tweet_id], set()).add(group_ids[tweet.tweet_id])
-    scored = [(priority(tweet, len(cluster_groups[cluster_ids[tweet.tweet_id]])), tweet) for tweet in eligible]
-    scored.sort(key=lambda item: (-item[0], item[1].tweet_id))
+    scored = rank_posts(tweets, cluster_ids, group_ids)
     category_counts: dict[str, int] = {}
     group_counts: dict[int, int] = {}
     chosen = []

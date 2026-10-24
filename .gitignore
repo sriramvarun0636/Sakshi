@@ -2,6 +2,8 @@
 # Anchored to the repository root so the source package src/sakshi/data/ is not ignored.
 /data/
 /runs/
+/build/
+/dist/
 
 .venv/
 __pycache__/

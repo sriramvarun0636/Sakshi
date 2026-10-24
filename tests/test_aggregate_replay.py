@@ -58,3 +58,12 @@ def test_windows_are_half_open_and_empty_aggregate_is_explicit(tmp_path):
     assert records[0]["counts"]["severity_eligible"]["severe_damage"] == 1
     assert records[1]["selected"] == []
     assert records[1]["system_lines"] == ["No verified information in this window."]
+
+
+def test_merged_groups_serialize_and_system_line_counts_only_severe_infrastructure(tmp_path):
+    rows = [tweet("a", 0), tweet("b", 0, humanitarian_label="affected_individuals")]
+    output = aggregate_event(rows, event="hurricane_maria", model_id="fixture", embedder=Embedder(), output_root=tmp_path)
+    aggregate = json.loads(output[0].read_text())
+    assert len({item["group_id"] for item in aggregate["selected"]}) == 1
+    assert aggregate["counts"]["severity_eligible"]["severe_damage"] == 2
+    assert "1 report infrastructure damage (1 severe)" in aggregate["system_lines"][0]

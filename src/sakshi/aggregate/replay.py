@@ -48,6 +48,9 @@ def aggregate_window(
     start: datetime,
     end: datetime,
     embedder: TextEmbedder,
+    cluster_ids: dict[str, int] | None = None,
+    group_ids: dict[str, int] | None = None,
+    omitted_ids: set[str] | None = None,
 ) -> dict:
     """Build one schema-shaped aggregate from a half-open event window."""
     if not model_id or not event or start.tzinfo is None or end.tzinfo is None or start >= end:
@@ -55,8 +58,11 @@ def aggregate_window(
     if any(tweet.event != event or not start <= tweet.posted_at < end for tweet in tweets):
         raise ValueError("aggregate contains a tweet outside its event or window")
     eligible = [tweet for tweet in tweets if tweet.eligible]
-    groups = evidence_groups(tweets)
-    clusters, omitted = claim_clusters(tweets, embedder)
+    groups = evidence_groups(tweets) if group_ids is None else group_ids
+    if cluster_ids is None:
+        clusters, omitted = claim_clusters(tweets, embedder)
+    else:
+        clusters, omitted = cluster_ids, omitted_ids or set()
     selectable = [tweet for tweet in eligible if tweet.tweet_id not in omitted]
     selected = select_posts(selectable, clusters, groups)
     by_category = {category: sum(tweet.humanitarian_label == category for tweet in eligible) for category in CATEGORY_URGENCY}
@@ -71,9 +77,13 @@ def aggregate_window(
     informative = sum(tweet.informative_label == "informative" for tweet in tweets)
     abstained = sum(tweet.abstain for tweet in tweets)
     if eligible:
+        severe_infrastructure = sum(
+            tweet.humanitarian_label == "infrastructure_and_utility_damage" and tweet.severity_label == "severe_damage"
+            for tweet in eligible
+        )
         lines = [
             f"{informative} informative posts in this window; {by_category['infrastructure_and_utility_damage']} "
-            f"report infrastructure damage ({severity['severe_damage']} severe).",
+            f"report infrastructure damage ({severe_infrastructure} severe).",
             f"{excluded['recycled']} posts with recycled images and {excluded['template_match']} with template graphics "
             f"were excluded; {abstained} await review.",
         ]

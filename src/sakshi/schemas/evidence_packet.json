@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SAKSHI evidence packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "post_id",
+    "event",
+    "posted_at",
+    "has_text",
+    "has_image",
+    "predictions",
+    "evidence",
+    "provenance",
+    "modality_weights",
+    "abstain",
+    "model_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "post_id": {
+      "type": "string"
+    },
+    "event": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "posted_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "has_text": {
+      "type": "boolean"
+    },
+    "has_image": {
+      "type": "boolean"
+    },
+    "text_clean": {
+      "type": "string"
+    },
+    "image_caption": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "text",
+        "model",
+        "model_generated"
+      ],
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model_generated": {
+          "const": true
+        }
+      }
+    },
+    "predictions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "informative",
+        "humanitarian",
+        "severity",
+        "disaster_type"
+      ],
+      "properties": {
+        "informative": {
+          "$ref": "#/$defs/head"
+        },
+        "humanitarian": {
+          "$ref": "#/$defs/head"
+        },
+        "severity": {
+          "$ref": "#/$defs/head"
+        },
+        "disaster_type": {
+          "$ref": "#/$defs/head"
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/span"
+          },
+          {
+            "$ref": "#/$defs/region"
+          }
+        ]
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "novel",
+            "duplicate",
+            "recycled",
+            "cross_event_concurrent",
+            "template_match",
+            "match_undated",
+            "seen_before",
+            "no_image",
+            "unsupported_image"
+          ]
+        },
+        "origin_event": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin_first_seen": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "similarity": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "modality_weights": {
+      "type": "object",
+      "required": [
+        "text",
+        "image"
+      ],
+      "properties": {
+        "text": {
+          "type": "number"
+        },
+        "image": {
+          "type": "number"
+        }
+      }
+    },
+    "abstain": {
+      "type": "boolean"
+    },
+    "abstain_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "model_id": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "head": {
+      "type": "object",
+      "required": [
+        "label",
+        "p",
+        "status"
+      ],
+      "properties": {
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "p": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "predicted",
+            "gated",
+            "unavailable"
+          ]
+        }
+      }
+    },
+    "span": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "head",
+        "value",
+        "score"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^T[0-9]+$"
+        },
+        "type": {
+          "const": "text_span"
+        },
+        "head": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "score": {
+          "type": "number"
+        }
+      }
+    },
+    "region": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "head",
+        "bbox",
+        "score"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^I[0-9]+$"
+        },
+        "type": {
+          "const": "image_region"
+        },
+        "head": {
+          "type": "string"
+        },
+        "bbox": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "score": {
+          "type": "number"
+        },
+        "caption": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
