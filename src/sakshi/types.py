@@ -97,6 +97,8 @@ class Explanation:
     image_heatmap_path: Path | None
     image_regions: list[ImageRegion]
     ig_convergence_delta: float | None
+    flags: list[str] = field(default_factory=list)
+    model_id: str | None = None
 
 
 @dataclass(frozen=True)

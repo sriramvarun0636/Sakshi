@@ -21,7 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.21", "nbformat>=5.10"]
 ml = ["torch>=2.6", "transformers>=4.49", "accelerate>=0.33", "scikit-learn>=1.4", "scipy>=1.11", "pyyaml>=6", "emoji>=2.8", "matplotlib>=3.8"]
-xai = ["captum>=0.7", "grad-cam>=1.5", "opencv-python-headless>=4.9"]
+xai = ["captum>=0.7", "grad-cam>=1.5", "opencv-python-headless>=4.9", "scipy>=1.11", "jsonschema>=4.21"]
 aggregate = ["sentence-transformers>=3.0", "scikit-learn>=1.4", "pyyaml>=6", "jsonschema>=4.21", "emoji>=2.8"]
 llm = ["ollama>=0.4", "sentence-transformers>=3.0", "jsonschema>=4.21", "qwen-vl-utils", "bitsandbytes>=0.43; platform_system != 'Darwin'", "autoawq; platform_system != 'Darwin'"]
 app = ["streamlit>=1.37", "opencv-python-headless>=4.9"]
@@ -33,6 +33,7 @@ sakshi-provenance = "sakshi.provenance_cli:main"
 sakshi-baselines = "sakshi.baseline_cli:main"
 sakshi-aggregate = "sakshi.aggregate_cli:main"
 sakshi-gpu = "sakshi.gpu_cli:main"
+sakshi-explain = "sakshi.explain_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
