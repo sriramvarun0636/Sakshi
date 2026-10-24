@@ -34,6 +34,7 @@ sakshi-baselines = "sakshi.baseline_cli:main"
 sakshi-aggregate = "sakshi.aggregate_cli:main"
 sakshi-gpu = "sakshi.gpu_cli:main"
 sakshi-explain = "sakshi.explain_cli:main"
+sakshi-generate = "sakshi.generate_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

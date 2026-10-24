@@ -4,6 +4,8 @@
 /runs/
 /build/
 /dist/
+# Blind WP5 sheets contain source post text and are local reviewer artifacts.
+/reports/generation/*_sheet.csv
 
 .venv/
 __pycache__/

@@ -2757,6 +2757,12 @@ Observed purity: 0.749, so the labels are kept.
 | O-11 | Second-LLM ablation | Only if time remains |
 | O-12 | Unfreeze CLIP | No |
 
+**WP5 implementation note (24 October 2026).** O-10 uses its stated 0.5 / 0.3 default
+until the Harvey-only calibration labels are complete. The §11.8 window cap is applied
+after eventwise seed-0 shuffling, selecting in a balanced round robin across Harvey,
+Maria and Mexico. The chosen window IDs and aggregate hashes are frozen before report
+generation. Neither threshold nor study results have been calibrated or evaluated yet.
+
 ## Appendix D — Key numbers
 
 | Quantity | Value |

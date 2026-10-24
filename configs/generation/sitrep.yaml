@@ -1,0 +1,16 @@
+# Resolved defaults live in sakshi.generate.workflow. This file fixes research choices.
+mode: loeo
+llm:
+  backend: ollama
+  model: qwen2.5:7b-instruct
+  temperature: 0.0
+  seed: 42
+  num_ctx: 8192
+  max_tokens: 1024
+  retries: 2
+  tokenizer: Qwen/Qwen2.5-7B-Instruct
+nli:
+  model: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+  tau_entail: 0.5
+  tau_contra: 0.3
+  max_premise_tokens: 480
