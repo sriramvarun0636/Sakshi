@@ -15,6 +15,7 @@ situation reports in which every sentence is cited and verified.
 | WP0 foundations: shared types, text/image loading, evaluation helpers, CLIP cache code | implemented; full 35,685-image CLIP cache built and checked |
 | WP1 classifier: fusion network, masked focal loss, training data, calibration, prediction, official evaluation | implemented and CPU smoke tested; full model run pending; B5 CLIP zero-shot baseline evaluated |
 | WP2 temporal provenance: index, graphics filter, decisions, replay | implemented; real 18,083-query replay complete; full injection benchmark pending |
+| WP4 aggregation: tweet rollup, claim clusters, evidence groups, ranking audit | CLI and scope/packet checks implemented; real MiniLM demonstration completed; LOEO research runs pending |
 | Explanations and verified report generation | planned |
 
 ## Installation
@@ -90,6 +91,41 @@ viewer is at `runs/provenance/labelling.html` and is ignored by git. Once `label
 `sakshi-provenance label-score` to write the study report. The export command refuses to
 overwrite any sheet with human labels.
 
+## Aggregation
+
+Install `pip install -e ".[dev,ml,aggregate]"`. Aggregation uses the pinned MiniLM model,
+the prediction table, the event's provenance replay and same-model evidence packets.
+The default scope is LOEO; the classifier run metadata must confirm that the model held
+out the requested event. `--mode heldout` restricts a main model to unified test rows.
+Research runs require validated packets at `data/processed/packets/<model_id>.jsonl`;
+the WP3 explanation and packet production workflow is still pending.
+
+```bash
+sakshi-aggregate --config configs/aggregation/default.yaml \
+  --model-id full-s0-loeo_hurricane_maria --event hurricane_maria \
+  --run runs/classifier/<run_id> --window 24h
+```
+
+For an integration demonstration using the existing B5 run:
+
+```bash
+sakshi-aggregate --config configs/aggregation/default.yaml --mode demo \
+  --model-id clip_zeroshot-s0 --event hurricane_maria \
+  --predictions runs/baselines/clip_zeroshot-s0-20261023-160328/predictions_all.parquet \
+  --output-root runs/aggregate/validated-20261024
+```
+
+Demonstrations live under `<output_root>/demo/<model_id>/<event>/` and carry
+`evidence_ready: false` when packets are absent. Research runs use
+`<output_root>/<model_id>/<event>/`. Each run records resolved config, seed, environment,
+input/source hashes, tweet rollup, per-window aggregates, ranking scores and a completion
+marker. Reruns verify these artifacts; changed inputs require a new output root.
+
+[The demonstration ranking report](reports/results/ranking_demo.md) covers Harvey, Maria,
+Mexico and Sri Lanka using the fixed B5 predictions. It compares priority, recency,
+confidence and ten random orders on the same eligible tweets with known gold labels.
+The research `ranking.md` awaits trained LOEO runs and their evidence packets.
+
 | Output | Contents |
 |---|---|
 | `data/processed/manifest.parquet` | one row per image (35,685): harmonised labels `y_*`, unified `split`, official `split_<task>`, leave-one-event-out roles `loeo_<event>` |
@@ -135,6 +171,9 @@ src/sakshi/
     evaluate_run.py   official test-set evaluation
   eval/               selectors, metrics, bootstrap and tables
   provenance/         image index, graphic scores, temporal decisions and replay
+  aggregate/          scoped aggregation, packet checks and urgency ranking audits
+  aggregate_cli.py    sakshi-aggregate command
+  schemas/            evidence packet JSON Schema from the design spec
 tests/                unit tests (no dataset download required)
 reports/data/         data preparation report and generated statistics
 ```

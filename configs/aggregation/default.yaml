@@ -1,0 +1,6 @@
+# Supply model_id, event and classifier_run via this file or CLI overrides.
+# LOEO runs require same-model packets at data/processed/packets/<model_id>.jsonl.
+mode: loeo
+seed: 0
+window_hours: 24
+output_root: runs/aggregate

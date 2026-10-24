@@ -87,6 +87,26 @@ def _git(args: list[str]) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def environment(*, model_id: str, seed: int, device: str | None = None, run_id: str | None = None) -> dict:
+    """Capture reproducibility metadata for classifier and downstream experiment runs."""
+    packages = {}
+    for package in ("numpy", "pandas", "torch", "transformers", "sentence-transformers", "scikit-learn"):
+        try:
+            packages[package] = version(package)
+        except PackageNotFoundError:
+            packages[package] = None
+    return {
+        "git_commit": _git(["rev-parse", "HEAD"]),
+        "git_dirty": _git(["status", "--porcelain"]) != "",
+        "python": sys.version.split()[0],
+        "packages": packages,
+        "device": device,
+        "seed": seed,
+        "model_id": model_id,
+        "run_id": run_id,
+    }
+
+
 def create_run_dir(
     config: object,
     *,
@@ -114,24 +134,7 @@ def create_run_dir(
     run_dir.mkdir(parents=True, exist_ok=False)
     try:
         (run_dir / "config.yaml").write_text(yaml.safe_dump(asdict(config), sort_keys=False), encoding="utf-8")
-        commit = _git(["rev-parse", "HEAD"])
-        dirty = _git(["status", "--porcelain"]) != ""
-        packages = {}
-        for package in ("numpy", "pandas", "torch", "transformers"):
-            try:
-                packages[package] = version(package)
-            except PackageNotFoundError:
-                packages[package] = None
-        env = {
-            "git_commit": commit,
-            "git_dirty": dirty,
-            "python": sys.version.split()[0],
-            "packages": packages,
-            "device": device,
-            "seed": seed,
-            "model_id": model_id,
-            "run_id": run_dir.name,
-        }
+        env = environment(model_id=model_id, seed=seed, device=device, run_id=run_dir.name)
         (run_dir / "env.json").write_text(json.dumps(env, indent=2) + "\n", encoding="utf-8")
     except Exception:
         # A failed metadata write leaves an obviously incomplete directory; callers can

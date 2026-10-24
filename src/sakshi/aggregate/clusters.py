@@ -28,6 +28,8 @@ class MiniLMEmbedder:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:
             raise ImportError("claim clustering requires the 'aggregate' extra") from exc
+        self.model_name = model_name
+        self.revision = revision
         self.model = SentenceTransformer(model_name, revision=revision, device=device)
 
     def encode(self, texts: list[str]) -> np.ndarray:
