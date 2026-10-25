@@ -9,7 +9,9 @@ import pytest
 import torch
 from torch import nn
 
+from sakshi.compute.runner import training_smoke
 from sakshi.config import load
+from sakshi.models import data as classifier_data
 from sakshi.models import predict as prediction
 from sakshi.models import train as training
 from sakshi.models.calibrate_run import calibrate_run
@@ -102,6 +104,9 @@ def tiny_training(monkeypatch, tmp_path):
     monkeypatch.setattr(training, "select_device", lambda requested="auto": torch.device("cpu"))
 
     class Store:
+        def __init__(self, *args):
+            pass
+
         def has_image(self, sample_id):
             return True
 
@@ -200,6 +205,22 @@ def test_unimodal_run_trains_calibrates_and_predicts(monkeypatch, tmp_path, tiny
     if modality == "text":
         assert predictions.severity_status.eq("unavailable").all()
         assert predictions.disaster_type_status.eq("unavailable").all()
+
+
+@pytest.mark.parametrize("modality", ["text", "image"])
+def test_unimodal_gpu_smoke_logic_on_cpu(monkeypatch, tmp_path, tiny_training, modality):
+    config, _, Store = tiny_training
+    monkeypatch.setattr(classifier_data, "FeatureStore", Store)
+    monkeypatch.setattr(classifier_data, "load_tokenizer", training.load_tokenizer)
+    config = replace(
+        config,
+        model=replace(config.model, modality=modality),
+        data=replace(config.data, modality_dropout=0.0, max_text_tokens=4),
+    )
+    result = training_smoke(config, tmp_path / "smoke.json", processed=training.paths.PROCESSED, require_cuda=False)
+    expected = "text_only" if modality == "text" else "image_only"
+    assert set(result["patterns"]) == {expected}
+    assert result["patterns"][expected]["metrics"]["optimizer_updates"] == 1
 
 
 def test_interrupted_resume_matches_uninterrupted_training(monkeypatch, tmp_path, tiny_training):
