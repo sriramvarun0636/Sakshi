@@ -35,6 +35,13 @@ GOLD = {
 def render_classifier_figures(run_dir: Path, *, output_dir: Path = paths.REPORTS / "figures") -> tuple[Path, Path]:
     """Plot calibrated reliability and humanitarian risk from verified test rows."""
     run_dir = Path(run_dir)
+    from sakshi.config import load
+    from sakshi.models.train import TrainConfig
+
+    config = load(run_dir / "config.yaml", TrainConfig)
+    if config.model.modality != "both":
+        raise ValueError("full classifier figures require both modalities")
+    seed = config.seed
     marker = json.loads((run_dir / "evaluation_complete.json").read_text(encoding="utf-8"))
     if marker != {name: hash_file(run_dir / name) for name in ("metrics_test.json", "predictions_official.parquet")}:
         raise ValueError("official evaluation artifacts do not match their completion marker")
@@ -66,7 +73,7 @@ def render_classifier_figures(run_dir: Path, *, output_dir: Path = paths.REPORTS
                 observed.append(float(correct[mask].mean()))
                 sizes.append(int(mask.sum()))
         ax.plot([0, 1], [0, 1], color="#aab7bb", linewidth=1.2, linestyle="--", label="Perfect calibration")
-        ax.plot(x, observed, color="#9f4b38", linewidth=1.8, marker="o", markersize=4, label="Seed 0")
+        ax.plot(x, observed, color="#9f4b38", linewidth=1.8, marker="o", markersize=4, label=f"Seed {seed}")
         ax.set_title(f"{title}\n{len(frame):,} posts  ·  ECE {metrics.ece(p, y):.3f}", loc="left", pad=12)
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
@@ -78,7 +85,7 @@ def render_classifier_figures(run_dir: Path, *, output_dir: Path = paths.REPORTS
         ax.set_ylabel("Observed accuracy")
     fig.suptitle("Calibration on frozen official test selectors", x=0.08, y=1.01, ha="left", fontsize=16, color="#173b43")
     fig.tight_layout()
-    reliability = output_dir / "classifier_seed0_reliability.png"
+    reliability = output_dir / f"classifier_seed{seed}_reliability.png"
     fig.savefig(reliability, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
@@ -109,7 +116,7 @@ def render_classifier_figures(run_dir: Path, *, output_dir: Path = paths.REPORTS
     ax.text(
         0.98,
         0.07,
-        f"Seed 0 · {len(frame):,} official posts · AURC {aurc:.3f}",
+        f"Seed {seed} · {len(frame):,} official posts · AURC {aurc:.3f}",
         transform=ax.transAxes,
         ha="right",
         color="#52696d",
@@ -117,7 +124,7 @@ def render_classifier_figures(run_dir: Path, *, output_dir: Path = paths.REPORTS
     ax.grid(color="#e4e9e9", linewidth=0.7)
     ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(0.01, 0.83))
     fig.tight_layout()
-    risk_path = output_dir / "classifier_seed0_risk_coverage.png"
+    risk_path = output_dir / f"classifier_seed{seed}_risk_coverage.png"
     fig.savefig(risk_path, dpi=180, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return reliability, risk_path

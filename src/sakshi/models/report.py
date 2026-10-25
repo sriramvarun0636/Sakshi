@@ -17,9 +17,18 @@ def _score_cell(score: dict) -> str:
     return f"{macro['point']:.3f} [{macro['lo']:.3f}, {macro['hi']:.3f}]"
 
 
-def render_classifier_report(run_dir: Path, *, output: Path = paths.REPORTS / "results" / "classifier.md") -> Path:
+def render_classifier_report(run_dir: Path, *, output: Path | None = None) -> Path:
     """Write only from a complete, hash-verified official test evaluation."""
     run_dir = Path(run_dir)
+    from sakshi.config import load
+    from sakshi.models.train import TrainConfig
+
+    config = load(run_dir / "config.yaml", TrainConfig)
+    if config.model.modality != "both":
+        raise ValueError("full classifier report requires both modalities")
+    seed = config.seed
+    if output is None:
+        output = paths.REPORTS / "results" / ("classifier.md" if seed == 0 else f"classifier_seed{seed}.md")
     marker = json.loads((run_dir / "evaluation_complete.json").read_text(encoding="utf-8"))
     expected = {name: hash_file(run_dir / name) for name in ("metrics_test.json", "predictions_official.parquet")}
     if marker != expected:
@@ -46,7 +55,7 @@ def render_classifier_report(run_dir: Path, *, output: Path = paths.REPORTS / "r
         ("Disaster type, DMD", "dmd", heads["disaster_type"]["dmd"]),
     )
     lines = [
-        "# Full classifier: frozen official test, seed 0",
+        f"# Full classifier: frozen official test, seed {seed}",
         "",
         f"Run: `{run_dir.name}`. Model: `{result['model_id']}`.",
         f"Bootstrap: {request['bootstrap']:,} item resamples (95% percentile intervals).",
@@ -108,14 +117,14 @@ def render_classifier_report(run_dir: Path, *, output: Path = paths.REPORTS / "r
         "This is one trained seed on the fixed official selectors. It is an E1/E6 result,",
         "but the planned three-seed summary, B1–B4/B6 baselines, ablations, LOEO and HumAID",
         "runs are still outstanding. Development-set checkpoint selection and calibration",
-        "are documented in `classifier_seed0_dev.md`; B5 is reported separately in",
+        "are recorded in this run's `metrics_dev.json`; B5 is reported separately in",
         "`baselines_clip_zeroshot.md`. Do not use this report as a complete E1–E6 table.",
         "",
         "## Figures",
         "",
-        "![Reliability diagrams for the four heads](../figures/classifier_seed0_reliability.png)",
+        f"![Reliability diagrams for the four heads](../figures/classifier_seed{seed}_reliability.png)",
         "",
-        "![Humanitarian risk–coverage curve](../figures/classifier_seed0_risk_coverage.png)",
+        f"![Humanitarian risk–coverage curve](../figures/classifier_seed{seed}_risk_coverage.png)",
         "",
         "## Reproduce",
         "",
