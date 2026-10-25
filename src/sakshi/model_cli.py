@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> None:
     evaluate.add_argument("--run", type=Path, required=True)
     loeo = sub.add_parser("evaluate-loeo", help="freeze and score one run's held-out event")
     loeo.add_argument("--run", type=Path, required=True)
+    modality = sub.add_parser("evaluate-modality", help="freeze B1/B2 scores on their original modality labels")
+    modality.add_argument("--run", type=Path, required=True)
     report = sub.add_parser("report", help="render a hash-verified official test report")
     report.add_argument("--run", type=Path, required=True)
     report.add_argument("--output", type=Path)
@@ -92,6 +94,11 @@ def main(argv: list[str] | None = None) -> None:
         from sakshi.models.evaluate_loeo import evaluate_loeo_run
 
         evaluate_loeo_run(args.run)
+        return
+    if args.command == "evaluate-modality":
+        from sakshi.models.evaluate_modality import evaluate_modality_run
+
+        evaluate_modality_run(args.run)
         return
     if args.command == "report":
         from sakshi.models.figures import render_classifier_figures

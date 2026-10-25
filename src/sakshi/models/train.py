@@ -266,7 +266,10 @@ def run_training(
     if resume_run is not None:
         from sakshi.config import load
 
-        if any((Path(resume_run) / name).exists() for name in ("evaluation_request.json", "evaluation_loeo_request.json")):
+        if any(
+            (Path(resume_run) / name).exists()
+            for name in ("evaluation_request.json", "evaluation_loeo_request.json", "evaluation_modality_request.json")
+        ):
             raise ValueError("cannot resume a run after its final evaluation inputs have been frozen")
         if asdict(load(Path(resume_run) / "config.yaml", TrainConfig)) != asdict(config):
             raise ValueError("resume config differs from the saved run; start a new run for configuration changes")

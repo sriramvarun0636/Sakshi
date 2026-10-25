@@ -11,6 +11,11 @@ disaster type; both use zero modality dropout. Their active heads, calibration, 
 and frozen evaluators follow the same setting. Train seeds 0–2 on the standard split and
 one seed per seven held-out events; derive B3 late fusion from their calibrated dev
 probabilities after the pairs complete. These baseline runs are pending hosted GPU time.
+After restoring each standard B1/B2 run, `sakshi-model evaluate-modality --run
+runs/classifier/<run_id>` freezes and scores the original CrisisMMD text or image labels
+on the two fixed 2,237-row official task roles. It writes separate per-modality metrics,
+predictions and input/output hash markers; those scores supplement the agreed-label
+official selectors. This evaluator runs locally against the exact restored checkpoint.
 The first hosted
 CUDA run completed on 2026-10-24 and was restored locally as
 `runs/classifier/full-s0-20261024-062724/`: 14 minutes of training on one T4, best epoch
