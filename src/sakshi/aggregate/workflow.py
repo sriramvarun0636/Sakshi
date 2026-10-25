@@ -80,8 +80,9 @@ def select_scope(manifest: pd.DataFrame, config: AggregateConfig) -> pd.DataFram
             if not fold or str(fold).removeprefix("loeo_") != config.event:
                 raise ValueError("LOEO classifier fold does not match the aggregation event")
             column = f"loeo_{config.event}"
-            if column not in rows or not rows[column].eq("test").all():
-                raise ValueError("event rows are not all test rows of this LOEO fold")
+            if column not in rows or not rows[column].isin(("test", "excluded")).all():
+                raise ValueError("event rows contain a training or development role in this LOEO fold")
+            rows = rows.loc[rows[column] == "test"]
         else:
             if fold is not None:
                 raise ValueError("heldout fallback must use a main classifier run without a fold")
@@ -130,7 +131,6 @@ def run_aggregation(config: AggregateConfig, *, embedder: TextEmbedder | None = 
     evidence_ready = config.mode != "demo" or config.packets is not None
     if evidence_ready:
         packets = load_packets(packet_path, config.model_id)
-        validate_selected(set(rows.sample_id), packets, rows, predictions, provenance)
         inputs["packets"] = packet_path
     signature = {name: {"path": str(path.resolve()), "sha256": _hash(path)} for name, path in inputs.items()}
     if embedder is None or isinstance(embedder, MiniLMEmbedder):
@@ -184,6 +184,9 @@ def run_aggregation(config: AggregateConfig, *, embedder: TextEmbedder | None = 
             group_ids=groups,
             omitted_ids=omitted,
         )
+        if evidence_ready:
+            selected_ids = {sample_id for item in aggregate["selected"] for sample_id in item["sample_ids"]}
+            validate_selected(selected_ids, packets, rows, predictions, provenance)
         aggregate["input_scope"] = config.mode
         aggregate["evidence_ready"] = evidence_ready
         name = f"{start.strftime('%Y%m%dT%H%M%SZ')}.json"

@@ -110,6 +110,12 @@ def test_scope_requires_correct_fold_and_holds_out_main_model_rows(inputs):
     frame, _, _, config, run = inputs
     real = replace(config, mode="loeo", classifier_run=str(run))
     assert len(select_scope(frame, real)) == 4
+    linked = frame.copy()
+    linked.loc[linked.sample_id == "a", "loeo_hurricane_maria"] = "excluded"
+    assert select_scope(linked, real).sample_id.tolist() == ["b", "c", "d"]
+    linked.loc[linked.sample_id == "a", "loeo_hurricane_maria"] = "dev"
+    with pytest.raises(ValueError, match="training or development"):
+        select_scope(linked, real)
     (run / "config.yaml").write_text("fold: loeo_hurricane_harvey\n")
     with pytest.raises(ValueError, match="fold does not match"):
         select_scope(frame, real)
@@ -152,7 +158,8 @@ def test_research_requires_valid_same_model_packets_and_detects_stale_content(in
     with pytest.raises(FileNotFoundError):
         run_aggregation(real, embedder=Embedder())
     records = packet_rows(frame, predictions, provenance)
-    packet_path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+    # Recycled, unselected posts do not need an expensive explanation packet.
+    packet_path.write_text("\n".join(json.dumps(record) for record in records if record["post_id"] != "d") + "\n")
     marker = run_aggregation(real, embedder=Embedder())
     assert json.loads(marker.read_text())["evidence_ready"] is True
     packets = load_packets(packet_path, "fixture")
