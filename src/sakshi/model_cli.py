@@ -33,6 +33,10 @@ def main(argv: list[str] | None = None) -> None:
     loeo.add_argument("--run", type=Path, required=True)
     modality = sub.add_parser("evaluate-modality", help="freeze B1/B2 scores on their original modality labels")
     modality.add_argument("--run", type=Path, required=True)
+    humaid = sub.add_parser("evaluate-humaid", help="freeze text-only HumAID transfer scores")
+    humaid.add_argument("--run", type=Path, required=True)
+    humaid.add_argument("--output", type=Path, required=True)
+    humaid.add_argument("--device", choices=("auto", "cpu", "mps", "cuda"), default="auto")
     report = sub.add_parser("report", help="render a hash-verified official test report")
     report.add_argument("--run", type=Path, required=True)
     report.add_argument("--output", type=Path)
@@ -99,6 +103,11 @@ def main(argv: list[str] | None = None) -> None:
         from sakshi.models.evaluate_modality import evaluate_modality_run
 
         evaluate_modality_run(args.run)
+        return
+    if args.command == "evaluate-humaid":
+        from sakshi.eval.humaid import run_humaid
+
+        run_humaid(args.run, args.output, device=args.device)
         return
     if args.command == "report":
         from sakshi.models.figures import render_classifier_figures
