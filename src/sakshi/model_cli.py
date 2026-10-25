@@ -58,7 +58,8 @@ def main(argv: list[str] | None = None) -> None:
         manifest = pd.read_parquet(paths.PROCESSED / "manifest.parquet")
         if args.rows == "official":
             mask = pd.Series(False, index=manifest.index)
-            for head in HEAD_LABELS:
+            heads = ("informative", "humanitarian") if config.model.modality == "text" else HEAD_LABELS
+            for head in heads:
                 mask |= official(manifest, head)
             manifest = manifest.loc[mask]
         elif args.rows == "extended":
@@ -68,6 +69,17 @@ def main(argv: list[str] | None = None) -> None:
                 parser.error("--rows loeo requires a run with a LOEO fold")
             column = config.fold if config.fold.startswith("loeo_") else f"loeo_{config.fold}"
             manifest = manifest.loc[manifest[column] == "test"]
+        if config.model.modality == "text":
+            from sakshi.text import normalise_for_model
+
+            manifest = manifest.loc[
+                manifest.text.map(lambda value: isinstance(value, str) and normalise_for_model(value) is not None)
+            ]
+        elif config.model.modality == "image":
+            from sakshi.models.data import FeatureStore
+
+            features = FeatureStore()
+            manifest = manifest.loc[manifest.sample_id.map(features.has_image)]
         output = args.output or args.run / f"predictions_{args.rows}.parquet"
         Predictor.from_run(args.run).write_rows(manifest, output, batch_size=args.batch_size)
         return
