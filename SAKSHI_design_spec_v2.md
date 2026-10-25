@@ -2173,7 +2173,10 @@ These MUST be stated in the thesis (Chapter 10).
 
 ### 12.1 Stack
 
-- Streamlit. `sakshi-app` runs `streamlit run src/sakshi/app/streamlit_app.py`.
+- A local Python HTTP server and packaged HTML/CSS/JavaScript provide the primary
+  presentation interface through `sakshi-app`. The original Streamlit interface remains
+  available through `sakshi-streamlit` as a functional fallback. This change records the
+  visual direction requested after the first Streamlit demo; no cloud service is needed.
 - The app reads precomputed artefacts. Only page 1 runs models live, on CPU.
 
 ### 12.2 Pages
@@ -2191,8 +2194,8 @@ These MUST be stated in the thesis (Chapter 10).
 - **Missing artefact:** an info box naming the command that produces it; never a stack
   trace.
 - **Missing images** (a teammate without the dataset): a placeholder thumbnail.
-- **Caching:** models under `st.cache_resource`, artefacts under `st.cache_data`.
-  Thumbnails are 256 px.
+- **Caching:** the local server retains loaded models and parsed artefacts for its lifetime;
+  restart it after generating new artefacts. Thumbnails are bounded to the requested view.
 
 ### 12.4 Privacy (INV-11)
 
@@ -2735,7 +2738,7 @@ Observed purity: 0.749, so the labels are kept.
 | D-26 | Ablations on the standard split; LOEO for full, B1 and B2 | Compute budget | FIXED |
 | D-27 | Captions from Qwen2.5-VL-7B, only for posts entering LLM inputs | Cost | FIXED |
 | D-28 | Grad-CAM target layer is the last block's `layer_norm1` on the live CLIP tower | Captures CLS reliance | FIXED |
-| D-29 | Streamlit dashboard; presentation mode on by default | Privacy | FIXED |
+| D-29 | Custom local fieldroom is primary; Streamlit remains a fallback; presentation mode on by default | Presentation quality and privacy after the week-6 design review | FIXED 2026-10-25 |
 | D-30 | No cloud APIs for post content | Ethics; "no cloud dependency" | FIXED |
 | D-31 | No external-rater human study; internal audits only | Logistics and risk | FIXED |
 | D-32 | Seeds 0, 1, 2 | Reproducibility | FIXED |
@@ -3357,3 +3360,4 @@ citing it.
 | v2 | Disaster type trained on external per-image labels (MEDIC at the time). Hierarchical gating replaced the consistency loss. Human study cut; Indian set made optional; cross-event overview demoted; frozen CLIP. **Added temporal provenance and a hard week-6 demo checkpoint** |
 | v2.1 | Agreed-label split for fused heads; gold- and predicted-gated severity; `n/a` for image-only heads; cross-dataset dedupe and label audit; replay index semantics and `match_undated`; closed-world caveat and real cases; novelty scoped against out-of-context media work; concatenated NLI premise and number normalisation; compute budget; unified split; snowflake timestamps; CIB instead of MEDIC; template graphics as a provenance false-positive class |
 | v3.0 | Rewritten as a self-contained specification for a team and AI assistants: invariants; glossary; integration types; manifest schema and selectors with asserted counts; hierarchical factorisation (conditional humanitarian head) and auxiliary per-modality heads; exact architecture, loss and optimisation; nine provenance statuses with an earliest-origin rule and graphics filter; benchmark with separate tuning and test events; evidence-packet schema; exact verifier gates, lexicons and number normaliser; manual audits; team roles, mocks and a dated timeline; risk register; decision log; full prompts and schemas |
+| v3.1 (2026-10-25) | WP6 presentation stack changed to the custom local fieldroom with Streamlit fallback after design review; evaluation and privacy requirements remain the same. |

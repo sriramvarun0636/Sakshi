@@ -29,6 +29,15 @@ def main(argv: list[str] | None = None) -> None:
     predict.add_argument("--batch-size", type=int, default=32)
     evaluate = sub.add_parser("evaluate", help="score the official held-out test selectors")
     evaluate.add_argument("--run", type=Path, required=True)
+    loeo = sub.add_parser("evaluate-loeo", help="freeze and score one run's held-out event")
+    loeo.add_argument("--run", type=Path, required=True)
+    report = sub.add_parser("report", help="render a hash-verified official test report")
+    report.add_argument("--run", type=Path, required=True)
+    report.add_argument("--output", type=Path)
+    compare = sub.add_parser("compare", help="paired official-test comparison with the completed B5 baseline")
+    compare.add_argument("--run", type=Path, required=True)
+    compare.add_argument("--baseline", type=Path, required=True)
+    compare.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     if args.command == "calibrate":
@@ -66,6 +75,25 @@ def main(argv: list[str] | None = None) -> None:
         from sakshi.compute.runner import final_evaluate
 
         final_evaluate(args.run)
+        return
+    if args.command == "evaluate-loeo":
+        from sakshi.models.evaluate_loeo import evaluate_loeo_run
+
+        evaluate_loeo_run(args.run)
+        return
+    if args.command == "report":
+        from sakshi.models.figures import render_classifier_figures
+        from sakshi.models.report import render_classifier_report
+
+        kwargs = {"output": args.output} if args.output else {}
+        render_classifier_report(args.run, **kwargs)
+        render_classifier_figures(args.run)
+        return
+    if args.command == "compare":
+        from sakshi.models.comparison import render_b5_comparison
+
+        kwargs = {"output": args.output} if args.output else {}
+        render_b5_comparison(args.run, args.baseline, **kwargs)
         return
     config = load(args.config, TrainConfig)
     if args.seed is not None:

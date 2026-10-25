@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import datetime, time, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -271,9 +272,26 @@ class ProvenanceIndex:
         )
 
     def _query_from_image(self, image: Image.Image, time: datetime | None, event: str | None, tweet_id: str | None) -> QueryImage:
+        return self.prepare_image_batch([image], times=[time], events=[event], tweet_ids=[tweet_id])[0]
+
+    def prepare_image_batch(
+        self,
+        images: Sequence[Image.Image],
+        *,
+        times: Sequence[datetime | None],
+        events: Sequence[str | None],
+        tweet_ids: Sequence[str | None] | None = None,
+    ) -> list[QueryImage]:
+        """Prepare live images together so benchmark transformations share one CLIP pass."""
         import imagehash
 
-        rgb = normalise_rgb(image)
+        if not images or len(images) != len(times) or len(images) != len(events):
+            raise ValueError("image batch, times and events must have the same nonzero length")
+        if tweet_ids is None:
+            tweet_ids = [None] * len(images)
+        if len(tweet_ids) != len(images):
+            raise ValueError("image batch and tweet IDs must have the same length")
+        rgb_images = [normalise_rgb(image) for image in images]
         try:
             if self.live_featurizer is None:
                 from sakshi.data.features import ClipFeaturizer
@@ -281,26 +299,35 @@ class ProvenanceIndex:
                 self.live_featurizer = ClipFeaturizer()
             if self.graphic_scorer is None:
                 self.graphic_scorer = ClipGraphicScorer()
-            _, embeddings = self.live_featurizer.encode([rgb])
-            embedding = embeddings[0]
-            probability = float(self.graphic_scorer.score(embeddings)[0])
-            gray = np.asarray(rgb.convert("L").resize((64, 64)), dtype=np.float32)
-            phash = int.from_bytes(np.packbits(imagehash.phash(rgb).hash.ravel()).tobytes(), "big")
-            return QueryImage(
-                post_id="input:" + sha256(rgb.tobytes()).hexdigest()[:16],
-                tweet_id=tweet_id,
-                event=event,
-                time=time,
-                has_image=True,
-                unreadable=False,
-                degenerate=float(gray.std()) < DEGENERATE_STD,
-                min_side=min(rgb.size),
-                phash=phash,
-                embedding=embedding,
-                is_graphic=probability >= self.tau_graphic,
-            )
+            _, embeddings = self.live_featurizer.encode(rgb_images)
+            probabilities = np.asarray(self.graphic_scorer.score(embeddings), dtype=np.float32)
+            if embeddings.shape != (len(images), 512) or probabilities.shape != (len(images),):
+                raise ValueError("live image features have an unexpected batch shape")
+            queries = []
+            for rgb, embedding, probability, query_time, event, tweet_id in zip(
+                rgb_images, embeddings, probabilities, times, events, tweet_ids, strict=True
+            ):
+                gray = np.asarray(rgb.convert("L").resize((64, 64)), dtype=np.float32)
+                phash = int.from_bytes(np.packbits(imagehash.phash(rgb).hash.ravel()).tobytes(), "big")
+                queries.append(
+                    QueryImage(
+                        post_id="input:" + sha256(rgb.tobytes()).hexdigest()[:16],
+                        tweet_id=tweet_id,
+                        event=event,
+                        time=query_time,
+                        has_image=True,
+                        unreadable=False,
+                        degenerate=float(gray.std()) < DEGENERATE_STD,
+                        min_side=min(rgb.size),
+                        phash=phash,
+                        embedding=embedding,
+                        is_graphic=float(probability) >= self.tau_graphic,
+                    )
+                )
+            return queries
         finally:
-            rgb.close()
+            for rgb in rgb_images:
+                rgb.close()
 
     def prepare_query(
         self,

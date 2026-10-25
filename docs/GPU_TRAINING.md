@@ -1,11 +1,14 @@
-# First classifier run on a hosted GPU
+# Classifier training on a hosted GPU
 
-Use [the training notebook](../notebooks/train_classifier_kaggle.ipynb) to train the
-standard-split classifier, calibrate on dev, and export its artifacts. The first hosted
+Use [the standard-split notebook](../notebooks/train_classifier_kaggle.ipynb) to train the
+standard-split classifier, calibrate on dev, and export its artifacts. Use the separate
+[LOEO notebook](../notebooks/train_classifier_loeo_kaggle.ipynb) for each held-out event.
+The first hosted
 CUDA run completed on 2026-10-24 and was restored locally as
 `runs/classifier/full-s0-20261024-062724/`: 14 minutes of training on one T4, best epoch
 5 of 8, batch 32, fp16. See the [dev run report](../reports/results/classifier_seed0_dev.md).
-Official trained-model tests remain unscored. CPU tests exercise the workflow with a
+The seed 0 official test is now frozen and scored; see
+[`classifier.md`](../reports/results/classifier.md). CPU tests exercise the workflow with a
 small encoder; the hosted run also passed the full encoder's CUDA smoke.
 
 ## 1. Prepare the input bundle locally
@@ -184,8 +187,18 @@ sakshi-gpu final-evaluate --run runs/classifier/<run_id>
 ```
 
 LOEO is deliberately rejected by the global official evaluator: a LOEO model may have
-trained on other events' official rows. Its event-specific evaluation remains a separate
-implementation milestone. Existing baseline results are not rescored by this workflow.
+trained on other events' official rows. For a completed run trained with `--fold
+loeo_<event>`, use `sakshi-model evaluate-loeo --run runs/classifier/<run_id>`. The separate
+evaluator freezes its input hashes, predicts exactly the held-out CrisisMMD event and
+scores informative, humanitarian and both gold-gated and predicted-gated severity with
+1,000 bootstrap draws. It writes `predictions_loeo.parquet`, `metrics_loeo.json` and
+completion hashes. These are event-specific results, never pooled with the unified
+official-test score. Existing baseline results are not rescored by this workflow.
+
+The LOEO notebook sets `FOLD` explicitly, runs fold-aware preflight and calibration, and
+uses the held-out-event evaluator before exporting the run. Keep one private notebook and
+one model ID per event. The seven folds and their local preflights were verified against
+the prepared manifest; GPU results must be recorded only after each hosted run completes.
 
 ## 6. Export, download and restore
 

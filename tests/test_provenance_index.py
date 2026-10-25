@@ -22,6 +22,11 @@ class LiveFeatures:
         return np.zeros((len(images), 50, 768), dtype=np.float32), embedding
 
 
+class UniformScorer:
+    def score(self, embeddings):
+        return np.full(len(embeddings), 0.1, dtype=np.float32)
+
+
 def test_index_aligns_sample_ids_and_derives_events(tmp_path):
     feature_dir = tmp_path / "features"
     feature_dir.mkdir()
@@ -75,3 +80,14 @@ def test_index_aligns_sample_ids_and_derives_events(tmp_path):
     assert provenance.check_query(prepared, candidates=swept, tau_clip=0.95) == recycled
     noisy = Image.fromarray(np.random.default_rng(0).integers(0, 256, (64, 64, 3), dtype=np.uint8))
     assert provenance.check(image=noisy).status == ProvStatus.SEEN_BEFORE
+    provenance.graphic_scorer = UniformScorer()
+    first = provenance.prepare_query(image=noisy, event="hurricane_maria", time=pd.Timestamp("2017-10-01T00:00:00Z"))
+    second = provenance.prepare_query(image=noisy, event="hurricane_irma", time=pd.Timestamp("2017-09-01T00:00:00Z"))
+    batched = provenance.prepare_image_batch([noisy, noisy], times=[first.time, second.time], events=[first.event, second.event])
+    for individual, batch_item in zip((first, second), batched, strict=True):
+        assert batch_item.post_id == individual.post_id
+        assert batch_item.event == individual.event
+        assert batch_item.time == individual.time
+        assert batch_item.phash == individual.phash
+        assert batch_item.is_graphic == individual.is_graphic
+        assert np.array_equal(batch_item.embedding, individual.embedding)

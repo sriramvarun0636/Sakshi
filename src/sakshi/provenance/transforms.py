@@ -76,18 +76,22 @@ def transform(image: Image.Image, name: str, *, seed: int) -> Image.Image:
     rng = np.random.default_rng(seed)
     if name == "identity":
         return rgb
-    if name == "jpeg30":
-        return _jpeg(rgb, 30)
-    if name == "crop90":
-        return _crop90(rgb, rng)
-    if name == "resize50":
-        return rgb.resize((max(1, round(rgb.width * 0.5)), max(1, round(rgb.height * 0.5))), Image.Resampling.BICUBIC)
-    if name == "caption_bar":
-        return _caption_bar(rgb)
-    if name == "filter":
-        return _filter(rgb)
-    if name == "screenshot":
-        return _screenshot(rgb)
-    if name == "flip":
-        return ImageOps.mirror(rgb)
-    return _jpeg(_caption_bar(_crop90(rgb, rng)), 50)
+    try:
+        if name == "jpeg30":
+            return _jpeg(rgb, 30)
+        if name == "crop90":
+            return _crop90(rgb, rng)
+        if name == "resize50":
+            return rgb.resize((max(1, round(rgb.width * 0.5)), max(1, round(rgb.height * 0.5))), Image.Resampling.BICUBIC)
+        if name == "caption_bar":
+            return _caption_bar(rgb)
+        if name == "filter":
+            return _filter(rgb)
+        if name == "screenshot":
+            return _screenshot(rgb)
+        if name == "flip":
+            return ImageOps.mirror(rgb)
+        with _crop90(rgb, rng) as cropped, _caption_bar(cropped) as captioned:
+            return _jpeg(captioned, 50)
+    finally:
+        rgb.close()

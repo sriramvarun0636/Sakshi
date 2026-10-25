@@ -6,6 +6,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
 
@@ -13,6 +14,8 @@ import numpy as np
 import pandas as pd
 
 from sakshi import atomic, paths
+from sakshi.compute.files import hash_file
+from sakshi.data.features import EMBED_FILE, MODEL_REVISION
 from sakshi.images import load_rgb
 from sakshi.provenance.detect import IndexImage, QueryImage
 from sakshi.provenance.index import ProvenanceIndex
@@ -53,6 +56,7 @@ class BenchmarkConfig:
     seeds: list[int] = field(default_factory=lambda: [0, 1, 2])
     transforms: list[str] = field(default_factory=lambda: list(NAMES))
     tau_grid: TauGrid = field(default_factory=TauGrid)
+    batch_size: int = 16
 
     def __post_init__(self) -> None:
         if tuple(self.tuning_events) != TUNING_EVENTS or tuple(self.test_events) != TEST_EVENTS:
@@ -63,6 +67,8 @@ class BenchmarkConfig:
             raise ValueError("benchmark must include all nine §8.9 transformations")
         if not 0 <= self.tau_graphic <= 1 or not 0 <= self.phash_max_distance <= 64 or self.phash_min_side < 1:
             raise ValueError("invalid provenance benchmark thresholds")
+        if self.batch_size < 1:
+            raise ValueError("benchmark batch size must be positive")
         self.tau_grid.values()
 
 
@@ -210,26 +216,44 @@ def prepare_injected(
     transformation: str,
     *,
     min_tau_clip: float,
+    batch_size: int = 16,
 ) -> list[Prepared]:
-    """Transform source pixels in memory and encode each query exactly once."""
+    """Transform source pixels in memory and encode each query exactly once in batches."""
+    if batch_size < 1:
+        raise ValueError("benchmark batch size must be positive")
     result = []
-    for injection in plan:
-        started = perf_counter()
-        source = index.manifest.loc[injection.source_id]
-        image = load_rgb(paths.image_file(source))
-        if image is None:
-            raise FileNotFoundError(f"indexed source image is no longer readable: {injection.source_id}")
+    for start in range(0, len(plan), batch_size):
+        batch = plan[start : start + batch_size]
+        transformed_images = []
+        transform_ms = []
         try:
-            transformed = transform(image, transformation, seed=injection.transform_seed)
-            try:
-                query = index.prepare_query(image=transformed, event=injection.event, time=injection.time)
-            finally:
-                transformed.close()
+            for injection in batch:
+                started = perf_counter()
+                source = index.manifest.loc[injection.source_id]
+                image = load_rgb(paths.image_file(source))
+                if image is None:
+                    raise FileNotFoundError(f"indexed source image is no longer readable: {injection.source_id}")
+                try:
+                    transformed_images.append(transform(image, transformation, seed=injection.transform_seed))
+                finally:
+                    image.close()
+                transform_ms.append((perf_counter() - started) * 1000)
+            encode_started = perf_counter()
+            queries = index.prepare_image_batch(
+                transformed_images,
+                times=[injection.time for injection in batch],
+                events=[injection.event for injection in batch],
+            )
+            encode_ms = (perf_counter() - encode_started) * 1000 / len(batch)
+            for injection, query, image_ms in zip(batch, queries, transform_ms, strict=True):
+                lookup_started = perf_counter()
+                query = replace(query, post_id=injection.query_id)
+                candidates = index.candidates(query, min_tau_clip=min_tau_clip)
+                elapsed = image_ms + encode_ms + (perf_counter() - lookup_started) * 1000
+                result.append(Prepared(query, candidates, elapsed, injection.source_id))
         finally:
-            image.close()
-        query = replace(query, post_id=injection.query_id)
-        candidates = index.candidates(query, min_tau_clip=min_tau_clip)
-        result.append(Prepared(query, candidates, (perf_counter() - started) * 1000, injection.source_id))
+            for image in transformed_images:
+                image.close()
     return result
 
 
@@ -327,7 +351,8 @@ def _write_report(
         "recall for recycled images whose originals were never indexed.",
         "",
         f"Selected CLIP threshold on tuning events: **{selected_tau:.3f}**. Graphic threshold: **{config.tau_graphic:.3f}**.",
-        "All figures below summarise held-out test events; rates and seeds are macro-averaged.",
+        f"The {len(cases)} held-out cases cover {len(config.test_events)} events, {len(config.transforms)} transforms,",
+        f"{len(config.rates)} injection rates and {len(config.seeds)} seeds. Rates and seeds are macro-averaged.",
         "",
         "### Overall",
         "",
@@ -353,20 +378,79 @@ def _write_report(
 
     figure_dir = output_dir.parent / "figures"
     for name, points in curves.items():
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.plot([point["recall"] for point in points], [point["precision"] for point in points], marker=".")
-        ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="Recall", ylabel="Precision", title=f"{name}: AUPRC {auprc(points):.3f}")
-        fig.tight_layout()
-        atomic.write(figure_dir / f"prov_pr_{name}.png", lambda temporary, figure=fig: figure.savefig(temporary, dpi=160))
+        fig, ax = plt.subplots(figsize=(6.7, 4.7), facecolor="#ffffff")
+        ordered = sorted(points, key=lambda point: (point["recall"], point["precision"]))
+        recall = [point["recall"] for point in ordered]
+        precision = [point["precision"] for point in ordered]
+        ax.fill_between(recall, precision, color="#d8ecea", alpha=0.7)
+        ax.plot(recall, precision, color="#087f78", linewidth=2.3)
+        selected = next(point for point in points if point["tau_clip"] == selected_tau)
+        ax.scatter([selected["recall"]], [selected["precision"]], s=64, color="#d45d3e", zorder=3)
+        ax.annotate(
+            "selected threshold",
+            (selected["recall"], selected["precision"]),
+            xytext=(8, 9),
+            textcoords="offset points",
+            fontsize=8,
+            color="#893b2b",
+        )
+        ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="Recall", ylabel="Precision")
+        ax.set_title(name.replace("_", " ").title(), loc="left", fontsize=16, fontweight="bold", color="#172b3a", pad=15)
+        ax.text(
+            1,
+            1.045,
+            f"AUPRC  {auprc(points):.3f}",
+            transform=ax.transAxes,
+            ha="right",
+            fontsize=10,
+            color="#087f78",
+            fontweight="bold",
+        )
+        ax.grid(color="#dce4e8", linewidth=0.7, alpha=0.7)
+        ax.set_axisbelow(True)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines[["left", "bottom"]].set_color("#9aaab4")
+        ax.tick_params(colors="#536b79")
+        fig.tight_layout(pad=2)
+        atomic.write(figure_dir / f"prov_pr_{name}.png", lambda temporary, figure=fig: figure.savefig(temporary, dpi=180))
         plt.close(fig)
-    degradation = frame.groupby("transform").recall.mean().reindex(config.transforms)
-    fig, ax = plt.subplots(figsize=(9, 4))
-    ax.bar(degradation.index, degradation.to_numpy())
-    ax.set(ylim=(0, 1), ylabel="Recall", title="Recycled-image recall by transformation")
-    ax.tick_params(axis="x", rotation=45)
-    fig.tight_layout()
-    atomic.write(figure_dir / "prov_degradation.png", lambda temporary: fig.savefig(temporary, dpi=160))
+    degradation = frame.groupby("transform").recall.mean().sort_values()
+    fig, ax = plt.subplots(figsize=(9.2, 5.3), facecolor="#ffffff")
+    colors = ["#d45d3e" if value < 0.3 else "#087f78" for value in degradation]
+    bars = ax.barh([name.replace("_", " ") for name in degradation.index], degradation.to_numpy(), color=colors, height=0.68)
+    ax.invert_yaxis()
+    for bar, value in zip(bars, degradation, strict=True):
+        ax.text(
+            value + 0.012,
+            bar.get_y() + bar.get_height() / 2,
+            f"{value:.1%}",
+            va="center",
+            fontsize=9,
+            color="#172b3a",
+            fontweight="bold",
+        )
+    ax.set(xlim=(0, 1.11), xlabel="Recall")
+    ax.set_title("Recycled-image recall by transformation", loc="left", fontsize=17, fontweight="bold", color="#172b3a", pad=14)
+    ax.text(
+        0, 1.01, "Held-out events · selected CLIP threshold", transform=ax.transAxes, fontsize=9, color="#536b79", va="bottom"
+    )
+    ax.grid(axis="x", color="#dce4e8", linewidth=0.7)
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right", "left"]].set_visible(False)
+    ax.spines["bottom"].set_color("#9aaab4")
+    ax.tick_params(axis="y", length=0, pad=8, colors="#172b3a")
+    ax.tick_params(axis="x", colors="#536b79")
+    fig.tight_layout(pad=2)
+    atomic.write(figure_dir / "prov_degradation.png", lambda temporary: fig.savefig(temporary, dpi=180))
     plt.close(fig)
+    lines.extend(["### Figures", "", "![Recall by transformation](../figures/prov_degradation.png)", ""])
+    lines.extend(
+        [
+            f"- [{name.replace('_', ' ').title()} PR curve](../figures/prov_pr_{name}.png) (AUPRC {auprc(points):.3f})"
+            for name, points in curves.items()
+        ]
+    )
+    lines.append("")
     atomic.text(output_dir / "benchmark.md", "\n".join(lines))
     # JSON is the completion marker: only publish it after every report figure exists.
     atomic.text(output_dir / "benchmark.json", json.dumps(payload, indent=2, allow_nan=False) + "\n")
@@ -379,6 +463,7 @@ def run_benchmark(
     output_dir: Path = paths.REPORTS / "provenance",
 ) -> Path:
     """Tune on three events, freeze τ_clip, then evaluate four held-out events."""
+    supplied_index = index is not None
     if index is None:
         index = ProvenanceIndex.load(
             tau_clip=config.tau_clip,
@@ -390,6 +475,46 @@ def run_benchmark(
         raise ValueError("provenance index graphic flags do not match benchmark tau_graphic; rebuild the index")
     grid = config.tau_grid.values()
     minimum = min(grid)
+    cache_dir = None
+    if not supplied_index:
+        files = {
+            "index": paths.PROCESSED / "provenance" / "index.parquet",
+            "manifest": paths.PROCESSED / "manifest.parquet",
+            "embeddings": paths.PROCESSED / "features" / EMBED_FILE,
+            "benchmark_code": Path(__file__),
+            "index_code": Path(__file__).with_name("index.py"),
+            "decision_code": Path(__file__).with_name("detect.py"),
+            "transform_code": Path(__file__).with_name("transforms.py"),
+        }
+        signature = {
+            "config": asdict(config),
+            "clip_revision": MODEL_REVISION,
+            "files": {name: hash_file(path) for name, path in files.items()},
+        }
+        key = sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()[:20]
+        cache_dir = paths.REPO / "runs" / "provenance" / "benchmark_cache" / key
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        atomic.text(cache_dir / "signature.json", json.dumps(signature, indent=2) + "\n")
+
+    def scores_for_case(name: str, genuine_by_tau: dict, plan: list[Injection], transformation: str) -> dict:
+        cached = cache_dir / f"{name}.json" if cache_dir is not None else None
+        if cached is not None and cached.is_file():
+            scores = json.loads(cached.read_text(encoding="utf-8"))
+            if set(scores) != {str(tau) for tau in grid}:
+                raise ValueError(f"incomplete benchmark cache case {cached}")
+            return scores
+        injected = prepare_injected(index, plan, transformation, min_tau_clip=minimum, batch_size=config.batch_size)
+        scores = {
+            str(tau): score_case(
+                genuine_by_tau[tau],
+                classify_prepared(index, injected, tau_clip=tau, ambiguous=ambiguous, graphic_by_id=graphic_by_id),
+            )
+            for tau in grid
+        }
+        if cached is not None:
+            atomic.text(cached, json.dumps(scores, allow_nan=False) + "\n")
+        return scores
+
     ambiguous = ambiguous_ids(index)
     graphic_by_id = dict(zip(index.frame.sample_id.astype(str), index.frame.is_graphic.astype(bool), strict=True))
     tuning_scores: dict[float, list[float]] = {tau: [] for tau in grid}
@@ -401,11 +526,9 @@ def run_benchmark(
         for transformation in config.transforms:
             for seed in config.seeds:
                 plan = injection_plan(index, event, rate=0.05, seed=seed)
-                injected = prepare_injected(index, plan, transformation, min_tau_clip=minimum)
+                scores = scores_for_case(f"tune-{event}-{transformation}-{seed}", real_by_tau, plan, transformation)
                 for tau in grid:
-                    positive = classify_prepared(index, injected, tau_clip=tau, ambiguous=ambiguous, graphic_by_id=graphic_by_id)
-                    stats = score_case(real_by_tau[tau], positive)
-                    tuning_scores[tau].append(float(stats["f1"]))
+                    tuning_scores[tau].append(float(scores[str(tau)]["f1"]))
                 log.info("tuning event=%s transform=%s seed=%d", event, transformation, seed)
     # The higher threshold wins a tie to avoid gratuitous false positives.
     selected_tau = max(grid, key=lambda tau: (float(np.mean(tuning_scores[tau])), tau))
@@ -421,12 +544,11 @@ def run_benchmark(
             for rate in config.rates:
                 for seed in config.seeds:
                     plan = injection_plan(index, event, rate=rate, seed=seed)
-                    injected = prepare_injected(index, plan, transformation, min_tau_clip=minimum)
+                    scores = scores_for_case(
+                        f"test-{event}-{transformation}-{rate:.2f}-{seed}", real_by_tau, plan, transformation
+                    )
                     for tau in grid:
-                        positive = classify_prepared(
-                            index, injected, tau_clip=tau, ambiguous=ambiguous, graphic_by_id=graphic_by_id
-                        )
-                        stats = score_case(real_by_tau[tau], positive)
+                        stats = scores[str(tau)]
                         curve_parts[transformation][tau].append(stats)
                         if tau == selected_tau:
                             cases.append({"event": event, "transform": transformation, "rate": rate, "seed": seed, **stats})

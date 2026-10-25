@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#e9e8df" />
+    <title>SAKSHI — The Fieldroom</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="identity" href="#classify" aria-label="SAKSHI home">
+          <span class="identity-symbol" aria-hidden="true"
+            ><span></span><span></span
+          ></span>
+          <span class="identity-word"
+            >SAKSHI<small>THE FIELDROOM / LOCAL INTELLIGENCE</small></span
+          >
+        </a>
+        <nav class="primary-nav" aria-label="Workspaces">
+          <button data-page="classify" class="nav-item active">
+            <b>01</b> Investigate
+          </button>
+          <button data-page="replay" class="nav-item">
+            <b>02</b> Event replay
+          </button>
+          <button data-page="sitrep" class="nav-item"><b>03</b> Sitrep</button>
+          <button data-page="review" class="nav-item"><b>04</b> Review</button>
+          <button data-page="results" class="nav-item">
+            <b>05</b> Results
+          </button>
+        </nav>
+        <div class="header-tools">
+          <span class="local-indicator"><i></i> LOCAL SYSTEM</span>
+          <label
+            class="privacy-switch"
+            title="Detected faces are blurred when presentation mode is on"
+          >
+            <input type="checkbox" id="presentation" checked /><span
+              class="switch-track"
+            ></span
+            ><span>SAFE VIEW</span>
+          </label>
+        </div>
+      </header>
+      <main id="view" tabindex="-1"></main>
+      <footer class="site-footer">
+        <span>SAKSHI / EVIDENCE WITH CONTEXT</span
+        ><span>RESEARCH INTERFACE · HUMAN JUDGMENT REQUIRED</span
+        ><span>LOCAL ONLY / 127.0.0.1</span>
+      </footer>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
