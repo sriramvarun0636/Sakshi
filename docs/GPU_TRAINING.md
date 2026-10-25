@@ -11,7 +11,8 @@ disaster type; both use zero modality dropout. Their active heads, calibration, 
 and frozen evaluators follow the same setting. Train seeds 0–2 on the standard split and
 one seed per seven held-out events; derive B3 late fusion from their calibrated dev
 probabilities after the pairs complete. Standard B1 and B2 seed 0 are restored and
-frozen; the remaining baseline runs are queued for hosted GPU time.
+frozen. Their B3 seed-zero fusion is complete; the remaining baseline runs are queued
+for hosted GPU time.
 After restoring each standard B1/B2 run, `sakshi-model evaluate-modality --run
 runs/classifier/<run_id>` freezes and scores the original CrisisMMD text or image labels
 on the two fixed 2,237-row official task roles. It writes separate per-modality metrics,
@@ -24,12 +25,30 @@ CUDA run completed on 2026-10-24 and was restored locally as
 The seed 0 official test is now frozen and scored; see
 [`classifier.md`](../reports/results/classifier.md). CPU tests exercise the workflow with a
 small encoder; the hosted run also passed the full encoder's CUDA smoke.
-Full seed 1 and the first Harvey LOEO fold are also restored and frozen. Full seed 2
-and Sri Lanka LOEO were running at the 2026-10-25 checkpoint. The seed 0 B1 and B2
+All three full standard seeds are now restored and frozen; see the
+[three-seed summary](../reports/results/classifier_three_seed.md). Harvey and Maria
+LOEO are restored and frozen. Sri Lanka and Mexico were running at the latest
+2026-10-25 checkpoint. The seed 0 B1 and B2
 original-modality evaluations each cover 2,237 text or image task-role rows per head;
 their metrics are in the corresponding `runs/classifier/b1-text-s0-20261025-065051/`
 and `runs/classifier/b2-image-s0-20261025-065121/` directories. Do not treat a
 single seed as the completed baseline study.
+
+B3 derives separate informative and conditional-humanitarian weights from paired
+calibrated B1/B2 development predictions, then evaluates the frozen test role. For
+standard seed 0:
+
+```sh
+sakshi-baselines late-fusion \
+  --text-run runs/classifier/b1-text-s0-20261025-065051 \
+  --image-run runs/classifier/b2-image-s0-20261025-065121 \
+  --output runs/baselines/b3-late-s0-20261025 --device cpu
+```
+
+The output stores dev predictions, selected weights, official test predictions, metrics,
+source hashes and a completion marker. See the
+[seed-zero paired comparison](../reports/results/comparison_seed0_trained.md). The
+weight choice must not be changed in response to test scores.
 
 ## 1. Prepare the input bundle locally
 
