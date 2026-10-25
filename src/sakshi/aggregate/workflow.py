@@ -108,6 +108,79 @@ def collect_ranking_reports(config: AggregateConfig, root: Path) -> Path:
     return output
 
 
+def plan_packet_ids(config: AggregateConfig, output: Path, *, embedder: TextEmbedder | None = None) -> Path:
+    """Freeze the exact sample IDs selected by research aggregation before building packets."""
+    config.validate()
+    if config.mode == "demo":
+        raise ValueError("packet planning requires a research aggregation scope")
+    manifest_path = _path(config.manifest)
+    prediction_path = (
+        _path(config.predictions) if config.predictions else paths.PROCESSED / "predictions" / f"{config.model_id}.parquet"
+    )
+    provenance_path = _path(config.provenance_dir) / f"replay_{config.event}.parquet"
+    rows = select_scope(pd.read_parquet(manifest_path), config)
+    predictions = pd.read_parquet(prediction_path)
+    if predictions.model_id.isna().any() or set(predictions.model_id) != {config.model_id}:
+        raise ValueError("prediction table must contain exactly the requested model_id")
+    tweets = rollup_samples(rows, predictions, pd.read_parquet(provenance_path))
+    seed_everything(config.seed)
+    if embedder is None:
+        embedder = MiniLMEmbedder()
+    selected_ids: set[str] = set()
+    windows_with_selection = 0
+    for start, end, subset in windows(tweets, hours=config.window_hours):
+        clusters, omitted = claim_clusters(subset, embedder)
+        aggregate = aggregate_window(
+            subset,
+            event=config.event,
+            model_id=config.model_id,
+            start=start,
+            end=end,
+            embedder=embedder,
+            cluster_ids=clusters,
+            group_ids=evidence_groups(subset),
+            omitted_ids=omitted,
+        )
+        if aggregate["selected"]:
+            windows_with_selection += 1
+        selected_ids.update(sample_id for item in aggregate["selected"] for sample_id in item["sample_ids"])
+    if not selected_ids or not selected_ids <= set(rows.sample_id.astype(str)):
+        raise ValueError("packet plan has no valid selected samples")
+    output = _path(str(output))
+    metadata_path = output.with_suffix(".json")
+    metadata = {
+        "config": asdict(config),
+        "inputs": {
+            name: _hash(path)
+            for name, path in {
+                "manifest": manifest_path,
+                "predictions": prediction_path,
+                "provenance": provenance_path,
+                "classifier_config": _path(config.classifier_run) / "config.yaml",
+                "classifier_env": _path(config.classifier_run) / "env.json",
+            }.items()
+        },
+        "embedder": {
+            "model": getattr(embedder, "model_name", MODEL_NAME),
+            "revision": getattr(embedder, "revision", MODEL_REVISION),
+        }
+        if isinstance(embedder, MiniLMEmbedder)
+        else {"implementation": f"{type(embedder).__module__}.{type(embedder).__qualname__}"},
+        "windows_with_selection": windows_with_selection,
+        "selected_samples": len(selected_ids),
+    }
+    planned = pd.DataFrame({"sample_id": sorted(selected_ids)})
+    if output.exists() or metadata_path.exists():
+        if not output.is_file() or not metadata_path.is_file():
+            raise FileExistsError("packet plan is incomplete; choose a new output path")
+        if json.loads(metadata_path.read_text(encoding="utf-8")) != metadata or not pd.read_parquet(output).equals(planned):
+            raise FileExistsError("packet plan or its inputs changed; choose a new output path")
+        return output
+    atomic.parquet(output, planned)
+    _json(metadata_path, metadata)
+    return output
+
+
 def run_aggregation(config: AggregateConfig, *, embedder: TextEmbedder | None = None) -> Path:
     """Write aggregates and ranking audits; a final completion marker commits the run."""
     config.validate()

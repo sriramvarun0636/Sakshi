@@ -109,7 +109,7 @@ def frozen_inputs(tmp_path, monkeypatch):
         inputs[name] = hash_file(processed / "features" / name)
     (run / "inputs.json").write_text(json.dumps(inputs))
     for name in ("checkpoint.pt", "config.yaml", "temperatures.json", "thresholds.json", "label_maps.json"):
-        (run / name).write_text("fixture")
+        (run / name).write_text("fold: null\n" if name == "config.yaml" else "fixture")
     return run, manifest
 
 
@@ -134,4 +134,19 @@ def test_protocol_freeze_rejects_changed_classifier_and_cache(frozen_inputs, mon
         protocol(run, manifest, manifest.iloc[1:])
     (paths.PROCESSED / "features/clip_vitb16_tokens.f16.npy").write_bytes(b"changed")
     with pytest.raises(ValueError, match="feature cache differs"):
+        protocol(run, manifest, manifest.iloc[1:])
+
+
+def test_loeo_packet_protocol_accepts_only_frozen_heldout_rows(frozen_inputs, monkeypatch):
+    run, manifest = frozen_inputs
+    manifest["loeo_hurricane_harvey"] = ["test", "excluded"]
+    (run / "config.yaml").write_text("fold: loeo_hurricane_harvey\n")
+    with pytest.raises(ValueError, match="must be frozen"):
+        protocol(run, manifest, manifest.iloc[:1])
+    (run / "evaluation_loeo_complete.json").write_text("fixture")
+    calls = []
+    monkeypatch.setattr("sakshi.models.evaluate_loeo.evaluate_loeo_run", lambda path: calls.append(path))
+    protocol(run, manifest, manifest.iloc[:1])
+    assert calls == [run] and (run / "explanation_protocol.json").is_file()
+    with pytest.raises(ValueError, match="only frozen held-out-event rows"):
         protocol(run, manifest, manifest.iloc[1:])

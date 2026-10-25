@@ -11,13 +11,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from sakshi import atomic, paths
 from sakshi.compute.files import hash_file
 from sakshi.explain.captions import CaptionCache
 from sakshi.explain.common import MAIN_HEADS
 from sakshi.explain.faithfulness import audit_modality
-from sakshi.explain.packets import make_packet
+from sakshi.explain.packets import make_packet, validate_packet
 from sakshi.explain.sanity import cascade, correlation
 from sakshi.explain.service import Explainer
 from sakshi.models.predict import Predictor
@@ -92,13 +93,25 @@ def protocol(run: Path, manifest: pd.DataFrame, selected: pd.DataFrame) -> dict:
         "percentages": [1, 5, 10, 20, 50],
         "random_seeds": [0, 1, 2, 3, 4],
     }
-    if (selected.split == "test").any():
+    run_config = yaml.safe_load((run / "config.yaml").read_text(encoding="utf-8"))
+    fold = run_config.get("fold")
+    if fold is not None:
+        from sakshi.models.evaluate_loeo import evaluate_loeo_run
+
+        event = str(fold).removeprefix("loeo_")
+        column = f"loeo_{event}"
+        if column not in selected or not (selected[column] == "test").all():
+            raise ValueError("LOEO explanations require only frozen held-out-event rows")
+        if not (run / "evaluation_loeo_complete.json").is_file():
+            raise ValueError("LOEO classifier evaluation must be frozen/completed before explaining held-out rows")
+        evaluate_loeo_run(run)
+    elif (selected.split == "test").any():
         from sakshi.compute.runner import final_evaluate
 
         if not (run / "evaluation_complete.json").is_file():
             raise ValueError("official classifier evaluation must be frozen/completed before explaining test rows; use dev first")
-        # This call verifies/reuses completed scores; it cannot launch fresh scoring here.
         final_evaluate(run)
+    if fold is not None or (selected.split == "test").any():
         freeze = run / "explanation_protocol.json"
         if freeze.exists() and json.loads(freeze.read_text()) != signature:
             raise ValueError("explanation protocol was frozen before test inspection and has changed")
@@ -218,36 +231,73 @@ def packets(run: Path, *, selector: str, output: Path, device: str = "auto", lim
     if output.exists():
         raise FileExistsError("packet output already exists; preserve it or choose a new path")
     artifacts = output.parent / (output.stem + "_artifacts")
-    request = {"protocol": signature, "selector": selector, "sample_ids": rows.sample_id.tolist(), "device": device}
+    provenance_dir = paths.PROCESSED / "provenance"
+    caption_path = paths.PROCESSED / "captions.parquet"
+    model_id = json.loads((run / "env.json").read_text(encoding="utf-8"))["model_id"]
+    request = {
+        "protocol": signature,
+        "model_id": model_id,
+        "selector": selector,
+        "sample_ids": rows.sample_id.tolist(),
+        "device": device,
+        "provenance": {name: hash_file(provenance_dir / name) for name in ("index.parquet", "onsets.json")},
+        "captions": hash_file(caption_path) if caption_path.is_file() else None,
+    }
     _request(artifacts, request)
-    engine = Explainer(Predictor.from_run(run, device=device))
-    provenance = ProvenanceIndex.load()
-    captions = CaptionCache(paths.PROCESSED / "captions.parquet")
+    engine = None
+    provenance = None
+    captions = None
     records, predictions, diagnostics = [], [], []
     for number, (_, row) in enumerate(rows.iterrows(), 1):
-        log.info("packet %d/%d: %s", number, len(rows), row.sample_id)
-        example = engine.prepare(row)
-        explanations = []
-        for head in MAIN_HEADS:
-            explanation, text, _ = engine.explain(example, head, artifacts / "heatmaps")
-            if explanation is not None:
-                explanations.append(explanation)
-                details = asdict(explanation)
-                details["image_heatmap_path"] = str(explanation.image_heatmap_path) if explanation.image_heatmap_path else None
-                if text is not None:
-                    details.update(ig_steps=text.steps, ig_output_difference=text.output_difference)
-                diagnostics.append(details)
-        records.append(
-            make_packet(
-                example,
-                event=None if pd.isna(row.event) else str(row.event),
-                posted_at=None if pd.isna(row.posted_at) else row.posted_at,
-                provenance=provenance.check(str(row.sample_id)),
-                explanations=explanations,
-                image_caption=captions.get(str(row.sample_id)),
-            )
-        )
-        predictions.append(prediction_record(example))
+        checkpoint = artifacts / "posts" / f"{sha256(str(row.sample_id).encode()).hexdigest()}.json"
+        if checkpoint.is_file():
+            item = json.loads(checkpoint.read_text(encoding="utf-8"))
+            if (
+                item["sample_id"] != str(row.sample_id)
+                or item["packet"]["post_id"] != str(row.sample_id)
+                or item["packet"]["model_id"] != model_id
+            ):
+                raise ValueError("packet checkpoint differs from the frozen request")
+            validate_packet(item["packet"])
+            if item["prediction"]["sample_id"] != str(row.sample_id):
+                raise ValueError("packet checkpoint prediction differs from the row")
+        else:
+            log.info("packet %d/%d: %s", number, len(rows), row.sample_id)
+            if engine is None:
+                engine = Explainer(Predictor.from_run(run, device=device))
+                provenance = ProvenanceIndex.load()
+                captions = CaptionCache(caption_path)
+            example = engine.prepare(row)
+            explanations = []
+            row_diagnostics = []
+            for head in MAIN_HEADS:
+                explanation, text, _ = engine.explain(example, head, artifacts / "heatmaps")
+                if explanation is not None:
+                    explanations.append(explanation)
+                    details = asdict(explanation)
+                    details["image_heatmap_path"] = (
+                        str(explanation.image_heatmap_path) if explanation.image_heatmap_path else None
+                    )
+                    if text is not None:
+                        details.update(ig_steps=text.steps, ig_output_difference=text.output_difference)
+                    row_diagnostics.append(details)
+            item = {
+                "sample_id": str(row.sample_id),
+                "packet": make_packet(
+                    example,
+                    event=None if pd.isna(row.event) else str(row.event),
+                    posted_at=None if pd.isna(row.posted_at) else row.posted_at,
+                    provenance=provenance.check(str(row.sample_id)),
+                    explanations=explanations,
+                    image_caption=captions.get(str(row.sample_id)),
+                ),
+                "prediction": prediction_record(example),
+                "diagnostics": row_diagnostics,
+            }
+            atomic.text(checkpoint, json.dumps(item, allow_nan=False) + "\n")
+        records.append(item["packet"])
+        predictions.append(item["prediction"])
+        diagnostics.extend(item["diagnostics"])
     atomic.parquet(artifacts / "predictions.parquet", pd.DataFrame(predictions))
     atomic.text(artifacts / "explanations.jsonl", "".join(json.dumps(value, allow_nan=False) + "\n" for value in diagnostics))
     atomic.text(output, "".join(json.dumps(value, allow_nan=False) + "\n" for value in records))

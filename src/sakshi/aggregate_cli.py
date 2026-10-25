@@ -7,7 +7,7 @@ import logging
 from dataclasses import replace
 from pathlib import Path
 
-from sakshi.aggregate.workflow import AggregateConfig, run_aggregation
+from sakshi.aggregate.workflow import AggregateConfig, plan_packet_ids, run_aggregation
 from sakshi.config import load
 from sakshi.data.events import EVENTS
 
@@ -24,6 +24,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--packets")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--output-root")
+    parser.add_argument("--plan-packets", type=Path, help="write the exact selected sample IDs before packet generation")
     args = parser.parse_args(argv)
     config = load(args.config, AggregateConfig) if args.config else AggregateConfig()
     changes = {
@@ -35,7 +36,7 @@ def main(argv: list[str] | None = None) -> None:
         changes["window_hours"] = int(args.window.removesuffix("h"))
     config = replace(config, **changes)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
-    print(run_aggregation(config))
+    print(plan_packet_ids(config, args.plan_packets) if args.plan_packets else run_aggregation(config))
 
 
 if __name__ == "__main__":

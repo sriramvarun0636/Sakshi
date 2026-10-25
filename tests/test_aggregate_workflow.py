@@ -11,7 +11,7 @@ import yaml
 from sakshi.aggregate.core import evidence_groups, rollup_samples
 from sakshi.aggregate.packets import load_packets, validate_selected
 from sakshi.aggregate.ranking import evaluate_window, gold_relevance, ndcg
-from sakshi.aggregate.workflow import AggregateConfig, run_aggregation, select_scope
+from sakshi.aggregate.workflow import AggregateConfig, plan_packet_ids, run_aggregation, select_scope
 
 
 class Embedder:
@@ -174,6 +174,21 @@ def test_research_requires_valid_same_model_packets_and_detects_stale_content(in
     packet_path.write_text(json.dumps(records[0]) + "\n")
     with pytest.raises(ValueError, match="handle, URL"):
         load_packets(packet_path, "fixture")
+
+
+def test_packet_plan_matches_research_selection_and_freezes_inputs(inputs, tmp_path):
+    frame, predictions, provenance, config, run = inputs
+    real = replace(config, mode="loeo", classifier_run=str(run))
+    plan = tmp_path / "selected.parquet"
+    assert plan_packet_ids(real, plan, embedder=Embedder()) == plan
+    assert set(pd.read_parquet(plan).sample_id) == {"a", "b"}
+    assert json.loads(plan.with_suffix(".json").read_text())["selected_samples"] == 2
+    assert plan_packet_ids(real, plan, embedder=Embedder()) == plan
+    changed = predictions.copy()
+    changed.loc[0, "p_informative__informative"] = 0.8
+    changed.to_parquet(config.predictions)
+    with pytest.raises(FileExistsError, match="inputs changed"):
+        plan_packet_ids(real, plan, embedder=Embedder())
 
 
 def test_ndcg_hand_calculation_and_unknown_label_accounting(inputs):
