@@ -68,3 +68,12 @@ def test_official_evaluation_schema_and_gold_gated_severity():
     assert gated["heads"]["severity"]["gold_gated"]["accuracy"]["point"] == 1
     assert gated["heads"]["severity"]["predicted_gated"]["accuracy"]["point"] < 1
     assert gated["heads"]["severity"]["predicted_gated"]["coverage"] < 1
+
+    text_predictions = predictions.loc[predictions.sample_id.str.startswith(("inf:", "hum:"))].copy()
+    text_predictions = text_predictions.drop(
+        columns=[name for name in text_predictions if name.startswith(("p_severity__", "p_disaster_type__"))]
+    )
+    text_predictions["severity_label"] = None
+    text_report = evaluate_predictions(manifest, text_predictions, bootstrap=2, modality="text")
+    assert set(text_report["heads"]) == {"informative", "humanitarian"}
+    assert text_report["selectors"] == {"informative": 1534, "humanitarian": 955}

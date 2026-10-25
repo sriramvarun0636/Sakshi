@@ -175,6 +175,33 @@ def test_training_run_writes_checkpoint_and_metadata_without_model_download(monk
     assert all(value == 1.0 for value in reloaded.temperatures.values())
 
 
+@pytest.mark.parametrize("modality", ["text", "image"])
+def test_unimodal_run_trains_calibrates_and_predicts(monkeypatch, tmp_path, tiny_training, modality):
+    config, frame, Store = tiny_training
+    config = replace(
+        config,
+        name=f"baseline-{modality}",
+        model=replace(config.model, modality=modality),
+        data=replace(config.data, modality_dropout=0.0),
+    )
+    run_dir = training.run_training(config, output_dir=tmp_path / "runs")
+    monkeypatch.setattr(prediction, "load_tokenizer", training.load_tokenizer)
+    calibration = calibrate_run(run_dir, features=Store(), rows=frame)
+    assert set(calibration["temperatures"]) == (
+        {"informative", "humanitarian"} if modality == "text" else {"informative", "humanitarian", "severity", "disaster_type"}
+    )
+    predictor = prediction.Predictor.from_run(run_dir, device="cpu")
+    predictor.features = Store()
+    selected = frame.iloc[:1] if modality == "text" else frame.iloc[:2]
+    predictions = predictor.predict_rows(selected)
+    assert len(predictions) == len(selected)
+    assert predictions.has_text.all() == (modality == "text")
+    assert predictions.has_image.all() == (modality == "image")
+    if modality == "text":
+        assert predictions.severity_status.eq("unavailable").all()
+        assert predictions.disaster_type_status.eq("unavailable").all()
+
+
 def test_interrupted_resume_matches_uninterrupted_training(monkeypatch, tmp_path, tiny_training):
     config, _, _ = tiny_training
     config = replace(

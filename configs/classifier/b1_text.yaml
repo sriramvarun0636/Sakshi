@@ -1,0 +1,5 @@
+name: b1-text
+model:
+  modality: text
+data:
+  modality_dropout: 0.0

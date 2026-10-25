@@ -28,7 +28,7 @@ def training_smoke(config: TrainConfig, output: Path, *, processed: Path = paths
 
     from sakshi.config import seed_everything
     from sakshi.models.data import ClassifierCollator, ClassifierDataset, FeatureStore, load_tokenizer
-    from sakshi.models.fusion import HEAD_CLASSES, FusionClassifier
+    from sakshi.models.fusion import HEAD_CLASSES, FusionClassifier, active_heads
     from sakshi.models.losses import class_weights, mask_targets_for_dropout
     from sakshi.models.train import make_scaler, optimizer_groups, precision_for, train_one_epoch
 
@@ -41,7 +41,7 @@ def training_smoke(config: TrainConfig, output: Path, *, processed: Path = paths
     started = perf_counter()
     features = FeatureStore(Path(processed) / "features")
     rows = pd.read_parquet(Path(processed) / "manifest.parquet")
-    heads = tuple(HEAD_CLASSES if config.model.auxiliary_heads else list(HEAD_CLASSES)[:4])
+    heads = active_heads(config.model)
     dataset = ClassifierDataset(
         rows,
         features,
@@ -49,14 +49,19 @@ def training_smoke(config: TrainConfig, output: Path, *, processed: Path = paths
         fold=config.fold.removeprefix("loeo_") if config.fold else None,
         enabled_heads=heads,
         use_cib=config.data.use_cib,
+        modality=config.model.modality,
     )
     text_positions = [i for i, sample in enumerate(dataset.samples) if sample["text"] and features.has_image(sample["sample_id"])]
     image_only = [i for i, sample in enumerate(dataset.samples) if not sample["text"] and features.has_image(sample["sample_id"])]
-    if not text_positions:
+    if config.model.modality != "image" and not text_positions:
         raise ValueError("smoke needs train samples with both usable text and cached images")
     image_positions = [*text_positions[: config.optim.batch_size // 2], *image_only] or text_positions
+    if config.model.modality == "image" and not image_positions:
+        raise ValueError("smoke needs train samples with cached images")
     tokenizer = load_tokenizer(config.model.text_encoder, revision=config.model.text_revision)
-    collator = ClassifierCollator(tokenizer, max_text_tokens=config.data.max_text_tokens)
+    collator = ClassifierCollator(
+        tokenizer, max_text_tokens=config.data.max_text_tokens, modality=config.model.modality
+    )
     model = FusionClassifier.from_pretrained(config.model).to(device)
     optimizer = torch.optim.AdamW(optimizer_groups(model, config.optim))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda _: 1.0)
@@ -66,7 +71,12 @@ def training_smoke(config: TrainConfig, output: Path, *, processed: Path = paths
     scaler = make_scaler(device)
     results = {}
     try:
-        for pattern in ("both", "text_only", "image_only"):
+        patterns = {
+            "both": ("both", "text_only", "image_only"),
+            "text": ("text_only",),
+            "image": ("image_only",),
+        }[config.model.modality]
+        for pattern in patterns:
             positions = image_positions if pattern == "image_only" else text_positions
             items = [dataset[positions[i % len(positions)]] for i in range(config.optim.batch_size)]
             batch = collator(items)

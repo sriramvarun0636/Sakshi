@@ -15,7 +15,7 @@ from sakshi.data import labels
 from sakshi.data.features import TOKEN_SHAPE, ClipFeaturizer
 from sakshi.images import load_rgb
 from sakshi.models.data import FeatureStore, load_tokenizer
-from sakshi.models.fusion import HEAD_CLASSES, HUMANITARIAN_CONDITIONAL, FusionClassifier
+from sakshi.models.fusion import HEAD_CLASSES, HUMANITARIAN_CONDITIONAL, FusionClassifier, active_heads
 from sakshi.types import HeadOutput, Post, Prediction
 
 OUTPUT_CLASSES = {
@@ -126,7 +126,10 @@ class Predictor:
         tau_inf: float = 0.5,
         tau_hum: float = 0.5,
         features: FeatureStore | None = None,
+        modality: str = "both",
     ) -> None:
+        if modality not in ("both", "text", "image"):
+            raise ValueError("modality must be both, text, or image")
         self.model = model.to(device).eval()
         self.tokenizer = tokenizer
         self.model_id = model_id
@@ -135,6 +138,7 @@ class Predictor:
         self.tau_inf = tau_inf
         self.tau_hum = tau_hum
         self.features = features
+        self.modality = modality
         self._live_clip: ClipFeaturizer | None = None
 
     @classmethod
@@ -148,11 +152,7 @@ class Predictor:
         run_dir = Path(run_dir)
         config = load(run_dir / "config.yaml", TrainConfig)
         saved_maps = json.loads((run_dir / "label_maps.json").read_text(encoding="utf-8"))
-        expected = (
-            HEAD_CLASSES
-            if config.model.auxiliary_heads
-            else {head: HEAD_CLASSES[head] for head in ("informative", "humanitarian", "severity", "disaster_type")}
-        )
+        expected = {head: HEAD_CLASSES[head] for head in active_heads(config.model)}
         if saved_maps != expected:
             raise ValueError("checkpoint label maps differ from canonical sakshi.data.labels")
         selected_device = select_device(device)
@@ -177,6 +177,7 @@ class Predictor:
             temperatures=temperatures,
             tau_inf=thresholds.get("tau_inf", 0.5),
             tau_hum=thresholds.get("tau_hum", 0.5),
+            modality=config.model.modality,
         )
 
     @torch.inference_mode()
@@ -187,12 +188,17 @@ class Predictor:
             input_ids=encoded["input_ids"].to(self.device),
             attention_mask=encoded["attention_mask"].to(self.device),
             image_tokens=torch.from_numpy(np.stack([item["tokens"] for item in items])).to(self.device),
-            has_text=torch.tensor([item["text"] is not None for item in items], device=self.device),
-            has_image=torch.tensor([item["has_image"] for item in items], device=self.device),
+            has_text=torch.tensor(
+                [item["text"] is not None and self.modality != "image" for item in items], device=self.device
+            ),
+            has_image=torch.tensor(
+                [item["has_image"] and self.modality != "text" for item in items], device=self.device
+            ),
         )
         probabilities = {
             head: (output[head].float() / self.temperatures.get(head, 1.0)).softmax(-1).cpu().numpy()
             for head in ("informative", "humanitarian", "severity", "disaster_type")
+            if head in output
         }
         result = []
         raw_probabilities = []
@@ -207,10 +213,10 @@ class Predictor:
                     model_id=self.model_id,
                     p_inf=mapped["informative"],
                     q_hum=mapped["humanitarian"],
-                    p_sev=mapped["severity"],
-                    p_dt=mapped["disaster_type"],
-                    has_text=item["text"] is not None,
-                    has_image=item["has_image"],
+                    p_sev=mapped.get("severity", {}),
+                    p_dt=mapped.get("disaster_type", {}),
+                    has_text=item["text"] is not None and self.modality != "image",
+                    has_image=item["has_image"] and self.modality != "text",
                     alpha_image=float(output["alpha"][index, 1]),
                     tau_inf=self.tau_inf,
                     tau_hum=self.tau_hum,
@@ -255,7 +261,11 @@ class Predictor:
             finally:
                 for image in images:
                     image.close()
-            if any(item["text"] is None and not item["has_image"] for item in items):
+            if any(
+                (item["text"] is None or self.modality == "image")
+                and (not item["has_image"] or self.modality == "text")
+                for item in items
+            ):
                 raise ValueError("post has neither usable text nor image")
             result.extend(self._predict_batch(items)[0])
         return result
@@ -286,15 +296,19 @@ class Predictor:
                         "tokens": self.features.tokens(sample_id),
                     }
                 )
-            if any(item["text"] is None and not item["has_image"] for item in items):
+            if any(
+                (item["text"] is None or self.modality == "image")
+                and (not item["has_image"] or self.modality == "text")
+                for item in items
+            ):
                 raise ValueError("manifest row has neither usable text nor cached image")
             predictions, raw_probabilities = self._predict_batch(items)
             for item, prediction, raw in zip(items, predictions, raw_probabilities, strict=True):
                 record = {
                     "sample_id": item["id"],
                     "model_id": self.model_id,
-                    "has_text": item["text"] is not None,
-                    "has_image": item["has_image"],
+                    "has_text": item["text"] is not None and self.modality != "image",
+                    "has_image": item["has_image"] and self.modality != "text",
                     "informative_label": prediction.informative.label,
                     "humanitarian_label": prediction.humanitarian.label,
                     "humanitarian_status": prediction.humanitarian.status,
@@ -312,7 +326,7 @@ class Predictor:
                         # Keep image-head probabilities on gated rows for gold-gated evaluation.
                         probability = (
                             raw[head].get(class_name, np.nan)
-                            if head in ("severity", "disaster_type") and item["has_image"]
+                            if head in ("severity", "disaster_type") and item["has_image"] and self.modality != "text"
                             else getattr(prediction, head).probs.get(class_name, np.nan)
                         )
                         record[f"p_{head}__{class_name}"] = probability

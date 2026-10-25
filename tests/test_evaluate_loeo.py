@@ -68,6 +68,17 @@ def test_loeo_rejects_training_leakage_and_foreign_prediction():
         evaluate_loeo_predictions(manifest, predictions.iloc[1:], event="hurricane_harvey", bootstrap=2)
 
 
+def test_text_only_loeo_reports_only_supported_heads():
+    manifest, predictions = _tables()
+    predictions = predictions.drop(columns=[name for name in predictions if name.startswith("p_severity__")])
+    predictions["severity_label"] = None
+    result = evaluate_loeo_predictions(
+        manifest, predictions, event="hurricane_harvey", bootstrap=2, modality="text"
+    )
+    assert result["modality"] == "text"
+    assert set(result["heads"]) == {"informative", "humanitarian"}
+
+
 def test_loeo_run_freezes_inputs_and_reuses_completed_metrics(tmp_path, monkeypatch):
     manifest, predictions = _tables()
     processed = tmp_path / "processed"

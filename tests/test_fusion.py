@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from sakshi.data import labels
-from sakshi.models.fusion import HEAD_CLASSES, HUMANITARIAN_CONDITIONAL, FusionClassifier, FusionConfig
+from sakshi.models.fusion import HEAD_CLASSES, HUMANITARIAN_CONDITIONAL, FusionClassifier, FusionConfig, active_heads
 from sakshi.models.losses import IGNORE, class_weights, focal_loss, mask_targets_for_dropout, multitask_loss
 from sakshi.models.predict import composite_humanitarian, finalize
 
@@ -88,6 +88,33 @@ def test_fusion_rejects_empty_rows_and_can_disable_auxiliary_heads():
     config = FusionConfig(text_hidden=12, image_hidden=8, image_tokens=3, d_model=16, attention_heads=4, auxiliary_heads=False)
     output = FusionClassifier(TinyTextEncoder(), config)(**batch())
     assert set(output) == {"alpha", "informative", "humanitarian", "severity", "disaster_type"}
+
+
+def test_unimodal_architectures_omit_unsupported_heads():
+    for modality, absent in (
+        ("text", {"severity", "disaster_type", "informative_image", "humanitarian_image"}),
+        ("image", {"informative_text", "humanitarian_text"}),
+    ):
+        config = FusionConfig(
+            modality=modality, text_hidden=12, image_hidden=8, image_tokens=3, d_model=16, attention_heads=4
+        )
+        model = FusionClassifier(TinyTextEncoder(), config)
+        assert set(model.heads) == set(active_heads(config))
+        assert not set(model.heads) & absent
+        inputs = batch()
+        if modality == "text":
+            inputs = {key: value[[0, 2]] for key, value in inputs.items()}
+            inputs["has_image"].zero_()
+        else:
+            inputs = {key: value[[0, 1]] for key, value in inputs.items()}
+            inputs["has_text"].zero_()
+        outputs = model(**inputs)
+        targets = {name: torch.zeros(len(inputs["has_text"]), dtype=torch.long) for name in model.heads}
+        weights = {name: torch.ones(len(HEAD_CLASSES[name])) for name in model.heads}
+        loss, parts = multitask_loss(outputs, targets, weights)
+        assert set(parts) == set(model.heads) and torch.isfinite(loss)
+        loss.backward()
+        assert any(parameter.grad is not None for parameter in model.heads["informative"].parameters())
 
 
 def test_fusion_accepts_autocast_encoder_states_without_scatter_dtype_mismatch(monkeypatch):

@@ -74,41 +74,49 @@ def _classification_columns(frame: pd.DataFrame, head: str) -> tuple[np.ndarray,
     return gold, predicted, _probabilities(frame, base, classes)
 
 
-def evaluate_predictions(manifest: pd.DataFrame, predictions: pd.DataFrame, *, bootstrap: int = 1000) -> dict:
+def evaluate_predictions(
+    manifest: pd.DataFrame, predictions: pd.DataFrame, *, bootstrap: int = 1000, modality: str = "both"
+) -> dict:
     """Score one prediction table using the exact published-compatible selectors."""
     if predictions.sample_id.duplicated().any() or predictions.empty:
         raise ValueError("prediction table must have unique sample IDs and at least one row")
     if predictions.model_id.nunique() != 1:
         raise ValueError("prediction table must contain one model_id")
-    frames = {head: _head_frame(manifest, predictions, head) for head in selectors.HEAD_LABELS}
+    if modality not in ("both", "text", "image"):
+        raise ValueError("modality must be both, text, or image")
+    enabled = ("informative", "humanitarian") if modality == "text" else tuple(selectors.HEAD_LABELS)
+    frames = {head: _head_frame(manifest, predictions, head) for head in enabled}
     heads = {}
     for head in ("informative", "humanitarian", "severity_dmd"):
+        if head not in frames:
+            continue
         gold, pred, probs = _classification_columns(frames[head], head)
         heads[head] = _score(gold, pred, selectors.HEAD_LABELS[head], probs, bootstrap)
 
-    severity = frames["severity"]
-    gold, pred, probs = _classification_columns(severity, "severity")
-    gold_gated = np.array(labels.SEVERITY, dtype=object)[probs.argmax(1)]
-    heads["severity"] = {
-        "gold_gated": _score(gold, gold_gated, labels.SEVERITY, probs, bootstrap),
-        "predicted_gated": {
-            **_score(gold, pred, labels.SEVERITY, probs, bootstrap),
-            "coverage": float(np.mean([value is not None for value in pred])),
-        },
-    }
+    if "severity" in frames:
+        severity = frames["severity"]
+        gold, pred, probs = _classification_columns(severity, "severity")
+        gold_gated = np.array(labels.SEVERITY, dtype=object)[probs.argmax(1)]
+        heads["severity"] = {
+            "gold_gated": _score(gold, gold_gated, labels.SEVERITY, probs, bootstrap),
+            "predicted_gated": {
+                **_score(gold, pred, labels.SEVERITY, probs, bootstrap),
+                "coverage": float(np.mean([value is not None for value in pred])),
+            },
+        }
 
-    disaster = frames["disaster_type"]
-    disaster_scores = {}
-    for source, part in (
-        ("all", disaster),
-        ("aidr_dt", disaster[disaster.source == "aidr_dt"]),
-        ("dmd", disaster[disaster.source == "dmd"]),
-    ):
-        if part.empty:
-            raise ValueError(f"disaster type selector has no {source} rows")
-        gold, pred, probs = _classification_columns(part, "disaster_type")
-        disaster_scores[source] = _score(gold, pred, labels.DISASTER_TYPE, probs, bootstrap)
-    heads["disaster_type"] = disaster_scores
+        disaster = frames["disaster_type"]
+        disaster_scores = {}
+        for source, part in (
+            ("all", disaster),
+            ("aidr_dt", disaster[disaster.source == "aidr_dt"]),
+            ("dmd", disaster[disaster.source == "dmd"]),
+        ):
+            if part.empty:
+                raise ValueError(f"disaster type selector has no {source} rows")
+            gold, pred, probs = _classification_columns(part, "disaster_type")
+            disaster_scores[source] = _score(gold, pred, labels.DISASTER_TYPE, probs, bootstrap)
+        heads["disaster_type"] = disaster_scores
 
     inf = predictions.informative_label
     hum = predictions.humanitarian_label
@@ -145,6 +153,7 @@ def evaluate_predictions(manifest: pd.DataFrame, predictions: pd.DataFrame, *, b
     }
     return {
         "model_id": str(predictions.model_id.iloc[0]),
+        "modality": modality,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "selectors": {head: len(frame) for head, frame in frames.items()},
         "heads": heads,
@@ -157,13 +166,18 @@ def evaluate_run(run_dir: Path, *, bootstrap: int = 1000) -> Path:
     """Refresh calibrated official predictions, then write metrics_test.json."""
     run_dir = Path(run_dir)
     manifest = pd.read_parquet(paths.PROCESSED / "manifest.parquet")
+    from sakshi.config import load
+    from sakshi.models.train import TrainConfig
+
+    config = load(run_dir / "config.yaml", TrainConfig)
     prediction_file = run_dir / "predictions_official.parquet"
     mask = pd.Series(False, index=manifest.index)
-    for head in selectors.HEAD_LABELS:
+    active = ("informative", "humanitarian") if config.model.modality == "text" else tuple(selectors.HEAD_LABELS)
+    for head in active:
         mask |= selectors.official(manifest, head)
     predictions = Predictor.from_run(run_dir).predict_rows(manifest.loc[mask])
     atomic.parquet(prediction_file, predictions)
-    result = evaluate_predictions(manifest, predictions, bootstrap=bootstrap)
+    result = evaluate_predictions(manifest, predictions, bootstrap=bootstrap, modality=config.model.modality)
     env_file = run_dir / "env.json"
     if env_file.exists():
         result["git_commit"] = json.loads(env_file.read_text(encoding="utf-8")).get("git_commit")

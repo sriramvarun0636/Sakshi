@@ -67,22 +67,32 @@ def calibrate_run(run_dir: Path, *, features: FeatureStore | None = None, rows: 
     feature_store = features or FeatureStore()
     manifest = rows if rows is not None else pd.read_parquet(paths.PROCESSED / "manifest.parquet")
     fold = config.fold.removeprefix("loeo_") if config.fold else None
-    dataset = ClassifierDataset(manifest, feature_store, split="dev", fold=fold, use_cib=config.data.use_cib)
+    dataset = ClassifierDataset(
+        manifest,
+        feature_store,
+        split="dev",
+        fold=fold,
+        use_cib=config.data.use_cib,
+        modality=config.model.modality,
+    )
     if not dataset:
         raise ValueError("no supervised dev rows available for calibration")
     loader = DataLoader(
         dataset,
         batch_size=config.optim.batch_size,
         shuffle=False,
-        collate_fn=ClassifierCollator(predictor.tokenizer, max_text_tokens=config.data.max_text_tokens),
+        collate_fn=ClassifierCollator(
+            predictor.tokenizer, max_text_tokens=config.data.max_text_tokens, modality=config.model.modality
+        ),
     )
-    logits: dict[str, list[torch.Tensor]] = {head: [] for head in MAIN_HEADS}
-    targets: dict[str, list[torch.Tensor]] = {head: [] for head in MAIN_HEADS}
+    main_heads = tuple(head for head in MAIN_HEADS if head in predictor.model.heads)
+    logits: dict[str, list[torch.Tensor]] = {head: [] for head in main_heads}
+    targets: dict[str, list[torch.Tensor]] = {head: [] for head in main_heads}
     humanitarian_gold = []
     with torch.inference_mode():
         for batch in loader:
             output = predictor.model(**{key: value.to(predictor.device) for key, value in batch["inputs"].items()})
-            for head in MAIN_HEADS:
+            for head in main_heads:
                 logits[head].append(output[head].float().cpu())
                 targets[head].append(batch["targets"][head])
             humanitarian_gold.append(batch["humanitarian_gold"])
@@ -96,7 +106,7 @@ def calibrate_run(run_dir: Path, *, features: FeatureStore | None = None, rows: 
             t_min=config.calibration.t_min,
             t_max=config.calibration.t_max,
         )
-        for head in MAIN_HEADS
+        for head in main_heads
     }
     temperatures = {head: fit.temperature for head, fit in fitted.items()}
     calibration_metrics = {
@@ -105,7 +115,7 @@ def calibrate_run(run_dir: Path, *, features: FeatureStore | None = None, rows: 
             "before": _probability_metrics(scores[head], gold[head], 1.0, config.calibration.ece_bins),
             "after": _probability_metrics(scores[head], gold[head], temperatures[head], config.calibration.ece_bins),
         }
-        for head in MAIN_HEADS
+        for head in main_heads
     }
     p_inf = (scores["informative"] / temperatures["informative"]).softmax(1).numpy()
     q_hum = (scores["humanitarian"] / temperatures["humanitarian"]).softmax(1).numpy()

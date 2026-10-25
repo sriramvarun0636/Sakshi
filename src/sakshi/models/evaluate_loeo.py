@@ -54,10 +54,15 @@ def _score(gold: np.ndarray, predicted: np.ndarray, classes: list[str], *, boots
 
 
 def evaluate_loeo_predictions(
-    manifest: pd.DataFrame, predictions: pd.DataFrame, *, event: str, bootstrap: int = 1000
+    manifest: pd.DataFrame,
+    predictions: pd.DataFrame,
+    *,
+    event: str,
+    bootstrap: int = 1000,
+    modality: str = "both",
 ) -> dict:
     """Score one fold's held-out event without using any other event's official rows."""
-    if event not in EVENTS or bootstrap < 1:
+    if event not in EVENTS or bootstrap < 1 or modality not in ("both", "text", "image"):
         raise ValueError("LOEO evaluation needs a known event and positive bootstrap count")
     column = f"loeo_{event}"
     if column not in manifest or predictions.sample_id.duplicated().any() or predictions.empty:
@@ -74,6 +79,8 @@ def evaluate_loeo_predictions(
         raise ValueError("LOEO predictions failed one-to-one alignment")
     heads = {}
     for head, (gold_column, classes) in HEADS.items():
+        if modality == "text" and head == "severity":
+            continue
         frame = aligned.loc[aligned[gold_column].notna()]
         if frame.empty:
             raise ValueError(f"LOEO {event} has no gold {head} rows")
@@ -107,6 +114,7 @@ def evaluate_loeo_predictions(
     return {
         "model_id": str(predictions.model_id.iloc[0]),
         "event": event,
+        "modality": modality,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "n_test_rows": len(test),
         "bootstrap": bootstrap,
@@ -154,7 +162,9 @@ def evaluate_loeo_run(run_dir: Path, *, bootstrap: int = 1000) -> Path:
         manifest = pd.read_parquet(paths.PROCESSED / "manifest.parquet")
         heldout = manifest.loc[manifest[f"loeo_{event}"] == "test"]
         predictions = Predictor.from_run(run_dir).predict_rows(heldout)
-        result = evaluate_loeo_predictions(manifest, predictions, event=event, bootstrap=bootstrap)
+        result = evaluate_loeo_predictions(
+            manifest, predictions, event=event, bootstrap=bootstrap, modality=config.model.modality
+        )
         atomic.parquet(prediction_path, predictions)
         atomic.text(metrics_path, json.dumps(result, indent=2, allow_nan=False) + "\n")
     if not prediction_path.exists():

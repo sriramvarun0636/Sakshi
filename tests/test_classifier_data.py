@@ -87,6 +87,27 @@ def test_collation_never_drops_only_modality_and_masks_affected_heads(tmp_path):
         assert targets["severity"][0] == IGNORE
 
 
+def test_unimodal_baselines_use_their_own_labels_and_masks(tmp_path):
+    rows, features = fixture_rows(tmp_path)
+    rows.loc[0, "y_informative"] = "not_informative"
+    rows.loc[0, "y_humanitarian"] = "not_humanitarian"
+    rows.loc[0, "informative_image"] = "not_informative"
+    rows.loc[0, "humanitarian_image"] = "not_humanitarian"
+    text_data = ClassifierDataset(rows, features, modality="text", enabled_heads=("informative", "humanitarian"))
+    image_data = ClassifierDataset(rows, features, modality="image", enabled_heads=("informative", "humanitarian"))
+    assert [item["sample_id"] for item in text_data] == ["a", "c"]
+    assert text_data[0]["targets"]["informative"] == 1
+    assert text_data[0]["targets"]["humanitarian"] != IGNORE
+    assert image_data[0]["targets"]["informative"] == 0
+    assert image_data[0]["targets"]["humanitarian"] == IGNORE
+    text_batch = ClassifierCollator(FakeTokenizer(), modality="text")(list(text_data))
+    image_batch = ClassifierCollator(FakeTokenizer(), modality="image")(list(image_data))
+    assert text_batch["inputs"]["has_text"].all() and not text_batch["inputs"]["has_image"].any()
+    assert image_batch["inputs"]["has_image"].all() and not image_batch["inputs"]["has_text"].any()
+    with pytest.raises(ValueError, match="zero modality dropout"):
+        ClassifierCollator(FakeTokenizer(), modality="text", modality_dropout=0.1)
+
+
 def test_tokenization_counts_include_special_tokens_and_exclude_unusable_text():
     class Tokenizer:
         def __call__(self, texts, **kwargs):

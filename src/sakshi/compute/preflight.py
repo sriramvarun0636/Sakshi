@@ -32,7 +32,7 @@ def inspect_inputs(
     """Assert cache alignment and split isolation; strict mode checks the fixed release."""
     from sakshi.eval.selectors import HEAD_LABELS, official
     from sakshi.models.data import ClassifierDataset, FeatureStore
-    from sakshi.models.fusion import HEAD_CLASSES
+    from sakshi.models.fusion import active_heads
 
     processed = Path(processed)
     rows = pd.read_parquet(processed / "manifest.parquet")
@@ -66,10 +66,18 @@ def inspect_inputs(
             if np.any(t[~ok]) or np.any(e[~ok]):
                 raise ValueError("unavailable images must have zero cache rows")
     features = FeatureStore(processed / "features")
-    heads = tuple(HEAD_CLASSES if config.model.auxiliary_heads else list(HEAD_CLASSES)[:4])
+    heads = active_heads(config.model)
     fold = config.fold.removeprefix("loeo_") if config.fold else None
     splits = {
-        role: ClassifierDataset(rows, features, split=role, fold=fold, enabled_heads=heads, use_cib=config.data.use_cib)
+        role: ClassifierDataset(
+            rows,
+            features,
+            split=role,
+            fold=fold,
+            enabled_heads=heads,
+            use_cib=config.data.use_cib,
+            modality=config.model.modality,
+        )
         for role in ("train", "dev")
     }
     if not all(splits.values()):
@@ -79,6 +87,7 @@ def inspect_inputs(
         strict
         and config.fold is None
         and config.data.use_cib
+        and config.model.modality == "both"
         and config.model.auxiliary_heads
         and index.ok.all()
         and counts != EXPECTED_TRAIN_LABELS

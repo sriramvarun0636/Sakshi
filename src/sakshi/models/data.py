@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, WeightedRandomSampler
 from sakshi import paths
 from sakshi.data.features import TOKEN_SHAPE, TOKENS_FILE, load_index
 from sakshi.data.labels import HUMANITARIAN
-from sakshi.models.fusion import BERTWEET_REVISION, HEAD_CLASSES
+from sakshi.models.fusion import BERTWEET_REVISION, HEAD_CLASSES, HUMANITARIAN_CONDITIONAL
 from sakshi.models.losses import IGNORE, mask_targets_for_dropout
 from sakshi.text import normalise_for_model
 
@@ -57,7 +57,7 @@ class FeatureStore:
         return np.asarray(self._tokens[row], dtype=np.float32)
 
 
-def encode_targets(row: pd.Series) -> dict[str, int]:
+def encode_targets(row: pd.Series, *, modality: str = "both") -> dict[str, int]:
     """Use -100 for missing labels and for the negative conditional humanitarian class."""
     result = {}
     for head, column in LABEL_COLUMNS.items():
@@ -69,6 +69,16 @@ def encode_targets(row: pd.Series) -> dict[str, int]:
                 result[head] = HEAD_CLASSES[head].index(str(value))
             except ValueError as exc:
                 raise ValueError(f"{row.sample_id}: unknown {head} label {value!r}") from exc
+    if modality in ("text", "image"):
+        result["informative"] = result[f"informative_{modality}"]
+        value = row[f"humanitarian_{modality}"]
+        result["humanitarian"] = (
+            HUMANITARIAN_CONDITIONAL.index(str(value))
+            if pd.notna(value) and value != "not_humanitarian"
+            else IGNORE
+        )
+    elif modality != "both":
+        raise ValueError("modality must be both, text, or image")
     return result
 
 
@@ -84,11 +94,14 @@ class ClassifierDataset(Dataset):
         fold: str | None = None,
         enabled_heads: Sequence[str] = tuple(HEAD_CLASSES),
         use_cib: bool = True,
+        modality: str = "both",
     ) -> None:
         if split not in ("train", "dev", "test"):
             raise ValueError("split must be train, dev or test")
         if len(set(enabled_heads)) != len(enabled_heads) or set(enabled_heads) - set(HEAD_CLASSES):
             raise ValueError("enabled_heads contains duplicates or unknown heads")
+        if modality not in ("both", "text", "image"):
+            raise ValueError("modality must be both, text, or image")
         split_column = f"loeo_{fold}" if fold else "split"
         required = {"sample_id", "dataset", "text", split_column, *LABEL_COLUMNS.values()}
         if missing := required - set(rows):
@@ -105,9 +118,11 @@ class ClassifierDataset(Dataset):
             sample_id = str(row.sample_id)
             text = normalise_for_model(row.text) if isinstance(row.text, str) else None
             has_image = features.has_image(sample_id)
+            if (modality == "text" and text is None) or (modality == "image" and not has_image):
+                continue
             if text is None and not has_image:
                 continue
-            targets = encode_targets(row)
+            targets = encode_targets(row, modality=modality)
             for head in ("severity", "disaster_type", "informative_image", "humanitarian_image"):
                 if not has_image:
                     targets[head] = IGNORE
@@ -116,7 +131,7 @@ class ClassifierDataset(Dataset):
                     targets[head] = IGNORE
             if not any(targets[head] != IGNORE for head in self.enabled_heads):
                 continue
-            hum_value = row.y_humanitarian
+            hum_value = row.y_humanitarian if modality == "both" else row[f"humanitarian_{modality}"]
             hum_gold = IGNORE if pd.isna(hum_value) else HUMANITARIAN.index(str(hum_value))
             self.samples.append(
                 {"sample_id": sample_id, "dataset": row.dataset, "text": text, "targets": targets, "humanitarian_gold": hum_gold}
@@ -158,18 +173,27 @@ class ClassifierDataset(Dataset):
 
 
 class ClassifierCollator:
-    def __init__(self, tokenizer: Any, *, max_text_tokens: int = 128, modality_dropout: float = 0.0) -> None:
+    def __init__(
+        self, tokenizer: Any, *, max_text_tokens: int = 128, modality_dropout: float = 0.0, modality: str = "both"
+    ) -> None:
         if max_text_tokens < 1 or not 0 <= modality_dropout <= 0.5:
             raise ValueError("invalid collation settings")
+        if modality not in ("both", "text", "image") or (modality != "both" and modality_dropout):
+            raise ValueError("unimodal runs require zero modality dropout")
         self.tokenizer = tokenizer
         self.max_text_tokens = max_text_tokens
         self.modality_dropout = modality_dropout
+        self.modality = modality
 
     def __call__(self, items: list[dict[str, Any]]) -> dict[str, Any]:
         if not items:
             raise ValueError("cannot collate an empty batch")
         has_text = torch.tensor([item["text"] is not None for item in items], dtype=torch.bool)
         has_image = torch.tensor([item["has_image"] for item in items], dtype=torch.bool)
+        if self.modality == "text":
+            has_image.zero_()
+        elif self.modality == "image":
+            has_text.zero_()
         if torch.any(~(has_text | has_image)):
             raise ValueError("a row has neither modality")
         text = [item["text"] or "" for item in items]

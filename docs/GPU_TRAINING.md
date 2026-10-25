@@ -3,6 +3,14 @@
 Use [the standard-split notebook](../notebooks/train_classifier_kaggle.ipynb) to train the
 standard-split classifier, calibrate on dev, and export its artifacts. Use the separate
 [LOEO notebook](../notebooks/train_classifier_loeo_kaggle.ipynb) for each held-out event.
+The [standard baseline notebook](../notebooks/train_classifier_baseline_kaggle.ipynb)
+and [LOEO baseline notebook](../notebooks/train_classifier_baseline_loeo_kaggle.ipynb)
+run B1 text-only and B2 image-only from explicit configs. B1 uses the per-modality text
+labels and scores informative/humanitarian only. B2 uses image labels plus severity and
+disaster type; both use zero modality dropout. Their active heads, calibration, predictions
+and frozen evaluators follow the same setting. Train seeds 0–2 on the standard split and
+one seed per seven held-out events; derive B3 late fusion from their calibrated dev
+probabilities after the pairs complete. These baseline runs are pending hosted GPU time.
 The first hosted
 CUDA run completed on 2026-10-24 and was restored locally as
 `runs/classifier/full-s0-20261024-062724/`: 14 minutes of training on one T4, best epoch

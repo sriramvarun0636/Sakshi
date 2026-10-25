@@ -20,7 +20,7 @@ from sakshi import atomic, paths
 from sakshi.compute.files import hash_file
 from sakshi.config import create_run_dir, seed_everything, worker_init_fn
 from sakshi.models.data import ClassifierCollator, ClassifierDataset, FeatureStore, load_tokenizer, tokenization_stats
-from sakshi.models.fusion import HEAD_CLASSES, FusionClassifier, FusionConfig
+from sakshi.models.fusion import HEAD_CLASSES, FusionClassifier, FusionConfig, active_heads
 from sakshi.models.losses import IGNORE, class_weights, multitask_loss
 from sakshi.models.state import capture_rng, restore_rng
 
@@ -226,7 +226,9 @@ def train_one_epoch(
 def evaluate_dev(model: FusionClassifier, loader: DataLoader, device: torch.device) -> dict[str, float]:
     """Selection macro-F1 across the four main heads on labelled dev rows."""
     model.eval()
-    actual: dict[str, list[int]] = {head: [] for head in ("informative", "humanitarian", "severity", "disaster_type")}
+    actual: dict[str, list[int]] = {
+        head: [] for head in ("informative", "humanitarian", "severity", "disaster_type") if head in model.heads
+    }
     predicted: dict[str, list[int]] = {head: [] for head in actual}
     for batch in loader:
         inputs, targets = _move_batch(batch, device)
@@ -272,19 +274,31 @@ def run_training(
         raise ValueError("batch size, accumulation and epochs must be positive")
     if config.optim.patience < 1 or not 0 <= config.optim.warmup_ratio < 1:
         raise ValueError("invalid patience or warmup ratio")
+    if config.model.modality != "both" and config.data.modality_dropout:
+        raise ValueError("unimodal runs require zero modality dropout")
     fold = config.fold.removeprefix("loeo_") if config.fold else None
     generator = seed_everything(config.seed)
     device = select_device()
     rows = pd.read_parquet(paths.PROCESSED / "manifest.parquet")
     feature_store = FeatureStore()
-    enabled_heads = tuple(
-        HEAD_CLASSES if config.model.auxiliary_heads else ("informative", "humanitarian", "severity", "disaster_type")
-    )
+    enabled_heads = active_heads(config.model)
     train_data = ClassifierDataset(
-        rows, feature_store, split="train", fold=fold, enabled_heads=enabled_heads, use_cib=config.data.use_cib
+        rows,
+        feature_store,
+        split="train",
+        fold=fold,
+        enabled_heads=enabled_heads,
+        use_cib=config.data.use_cib,
+        modality=config.model.modality,
     )
     dev_data = ClassifierDataset(
-        rows, feature_store, split="dev", fold=fold, enabled_heads=enabled_heads, use_cib=config.data.use_cib
+        rows,
+        feature_store,
+        split="dev",
+        fold=fold,
+        enabled_heads=enabled_heads,
+        use_cib=config.data.use_cib,
+        modality=config.model.modality,
     )
     if not train_data or not dev_data:
         raise ValueError("training and dev splits must have supervised rows with usable inputs")
@@ -296,7 +310,10 @@ def run_training(
             samples_per_epoch=config.data.samples_per_epoch, crisismmd_share=config.data.crisismmd_share, generator=generator
         ),
         collate_fn=ClassifierCollator(
-            tokenizer, max_text_tokens=config.data.max_text_tokens, modality_dropout=config.data.modality_dropout
+            tokenizer,
+            max_text_tokens=config.data.max_text_tokens,
+            modality_dropout=config.data.modality_dropout,
+            modality=config.model.modality,
         ),
         worker_init_fn=worker_init_fn,
         generator=generator,
@@ -305,7 +322,9 @@ def run_training(
         dev_data,
         batch_size=config.optim.batch_size,
         shuffle=False,
-        collate_fn=ClassifierCollator(tokenizer, max_text_tokens=config.data.max_text_tokens),
+        collate_fn=ClassifierCollator(
+            tokenizer, max_text_tokens=config.data.max_text_tokens, modality=config.model.modality
+        ),
     )
     model = FusionClassifier.from_pretrained(config.model).to(device)
     counts = train_data.class_counts()

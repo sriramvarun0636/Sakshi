@@ -1,0 +1,5 @@
+name: b2-image
+model:
+  modality: image
+data:
+  modality_dropout: 0.0

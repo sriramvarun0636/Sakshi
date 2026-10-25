@@ -26,6 +26,7 @@ HEAD_CLASSES = {
 
 @dataclass(frozen=True)
 class FusionConfig:
+    modality: str = "both"
     text_encoder: str = "vinai/bertweet-base"
     text_revision: str = BERTWEET_REVISION
     text_hidden: int = 768
@@ -42,12 +43,29 @@ class FusionConfig:
     auxiliary_heads: bool = True
 
     def __post_init__(self) -> None:
+        if self.modality not in ("both", "text", "image"):
+            raise ValueError("modality must be both, text, or image")
         if self.d_model < 1 or self.d_model % self.attention_heads:
             raise ValueError("d_model must be positive and divisible by attention_heads")
         if self.cross_attention_layers < 0 or self.image_tokens < 1:
             raise ValueError("cross_attention_layers must be nonnegative and image_tokens positive")
         if not 0 <= self.dropout < 1 or not 0 <= self.head_dropout < 1:
             raise ValueError("dropout probabilities must lie in [0, 1)")
+
+
+def active_heads(config: FusionConfig) -> tuple[str, ...]:
+    """Choose supervised heads without constructing unused baseline outputs."""
+    main = ("informative", "humanitarian")
+    if config.modality != "text":
+        main += ("severity", "disaster_type")
+    if not config.auxiliary_heads:
+        return main
+    auxiliary = {
+        "both": ("informative_text", "humanitarian_text", "informative_image", "humanitarian_image"),
+        "text": ("informative_text", "humanitarian_text"),
+        "image": ("informative_image", "humanitarian_image"),
+    }
+    return main + auxiliary[config.modality]
 
 
 class CrossAttentionBlock(nn.Module):
@@ -115,11 +133,7 @@ class FusionClassifier(nn.Module):
         self.text_output_norm = nn.LayerNorm(dim)
         self.image_output_norm = nn.LayerNorm(dim)
         self.gate_network = nn.Sequential(nn.Linear(3 * dim, 256), nn.GELU(), nn.Linear(256, 2))
-        selected = (
-            HEAD_CLASSES
-            if self.config.auxiliary_heads
-            else {k: v for k, v in HEAD_CLASSES.items() if "_" not in k or k == "disaster_type"}
-        )
+        selected = {name: HEAD_CLASSES[name] for name in active_heads(self.config)}
         self.heads = nn.ModuleDict(
             {
                 name: _head(dim, self.config.head_hidden, len(classes), self.config.head_dropout)
