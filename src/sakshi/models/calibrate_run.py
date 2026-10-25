@@ -60,7 +60,7 @@ def _probability_metrics(logits: torch.Tensor, gold: torch.Tensor, temperature: 
 def calibrate_run(run_dir: Path, *, features: FeatureStore | None = None, rows: pd.DataFrame | None = None) -> dict:
     """Write temperatures, review thresholds and before/after dev metrics to a run."""
     run_dir = Path(run_dir)
-    if (run_dir / "evaluation_request.json").exists():
+    if any((run_dir / name).exists() for name in ("evaluation_request.json", "evaluation_loeo_request.json")):
         raise ValueError("calibration is frozen for final evaluation; reuse the recorded dev calibration")
     config = load(run_dir / "config.yaml", TrainConfig)
     predictor = Predictor.from_run(run_dir)

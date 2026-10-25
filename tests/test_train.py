@@ -232,7 +232,8 @@ def test_interrupted_resume_matches_uninterrupted_training(monkeypatch, tmp_path
     same(actual["state_dict"], torch.load(resumed / "last.pt", weights_only=True)["state_dict"])
 
 
-def test_resume_rejects_changed_config_inputs_and_test_freeze(tmp_path, tiny_training):
+@pytest.mark.parametrize("freeze_name", ["evaluation_request.json", "evaluation_loeo_request.json"])
+def test_resume_rejects_changed_config_inputs_and_test_freeze(tmp_path, tiny_training, freeze_name):
     config, frame, _ = tiny_training
     run = training.run_training(config, output_dir=tmp_path / "runs")
     with pytest.raises(ValueError, match="resume config differs"):
@@ -241,7 +242,7 @@ def test_resume_rejects_changed_config_inputs_and_test_freeze(tmp_path, tiny_tra
     frame.assign(text="changed").to_parquet(manifest)
     with pytest.raises(ValueError, match="resume inputs differ"):
         training.run_training(config, resume_run=run)
-    (run / "evaluation_request.json").write_text("{}")
+    (run / freeze_name).write_text("{}")
     with pytest.raises(ValueError, match="frozen"):
         training.run_training(config, resume_run=run)
     with pytest.raises(ValueError, match="frozen"):
