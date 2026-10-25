@@ -22,10 +22,12 @@ indices come from its `id2label`. The default thresholds are `0.5` and `0.3` unt
 Harvey calibration study chooses an entailment threshold. A Qwen tokenizer checks
 the prompt budget before a real backend call; 200 tokens are reserved for retry text.
 
-At this checkpoint, this repository has no completed LOEO classifier/aggregate runs,
-no full selected-post packet files, no local Ollama model, and no cached NLI checkpoint.
-The real Harvey run and the human evaluation therefore remain pending. The fake-backend
-integration test verifies file and logic flow; it is not a model-quality result.
+The Harvey LOEO classifier is trained and its held-out evaluation is frozen. Its WP4
+packet plan selects 504 samples across 18 windows; the real explanation pass is in
+progress. No completed research aggregate or sitrep is claimed yet. The fake-backend
+integration test verifies file and logic flow; it is not a model-quality result. Two
+independent reviewers and an adjudicator are unavailable, so the human calibration and
+evaluation scores remain pending and must not be replaced with model-generated labels.
 
 ## Prepare evidence and models
 
@@ -36,15 +38,30 @@ pip install -e ".[dev,ml,xai,aggregate,llm]"
 ollama pull qwen2.5:7b-instruct
 ```
 
-Create and score the LOEO classifier folds for Harvey, Maria and Mexico. Run WP2 replay,
-generate captions for selected images on a CUDA host if wanted, then use the WP3 workflow
-to produce same-model packets for all selected posts. Caption input is a JSON array of
+Create and score the LOEO classifier folds for Maria and Mexico. Harvey is complete.
+Run WP2 replay, generate captions for selected images on a CUDA host if wanted, then
+plan and produce same-model packets for the posts WP4 actually selects:
+
+```bash
+sakshi-aggregate --model-id full-s0-loeo_hurricane_harvey --event hurricane_harvey \
+  --mode loeo --run runs/classifier/full-s0-loeo_hurricane_harvey-20261025-063127 \
+  --predictions runs/classifier/full-s0-loeo_hurricane_harvey-20261025-063127/predictions_loeo.parquet \
+  --plan-packets runs/aggregate/plans/full-s0-loeo_hurricane_harvey.parquet
+sakshi-explain packets --run runs/classifier/full-s0-loeo_hurricane_harvey-20261025-063127 \
+  --rows runs/aggregate/plans/full-s0-loeo_hurricane_harvey.parquet --device mps \
+  --output data/processed/packets/full-s0-loeo_hurricane_harvey.jsonl
+```
+
+Packet generation writes one atomic post checkpoint at a time and can resume with the
+same command after an interruption. The plan freezes source hashes and exact sample IDs.
+Caption input is a JSON array of
 sample IDs. `sakshi-generate captions --ids selected_ids.json` appends only missing
 captions to `data/processed/captions.parquet`; packets must be built after captions exist
 to include them. Unavailable captions remain null, and the verifier uses only packet text
 and caption fields.
 
-Run WP4 in LOEO mode for each event. Its completed aggregate directory is
+Run WP4 in LOEO mode for each event with `--run`, `--predictions` and `--packets`
+pointing to the same classifier and planned packet file. Its completed aggregate directory is
 `runs/aggregate/<model_id>/<event>/`, with `evidence_ready: true`. Then freeze the study
 windows, using the default seed 0, at least 10 eligible tweets, 24-hour windows and a
 60-window cap balanced across the three events:

@@ -10,7 +10,8 @@ labels and scores informative/humanitarian only. B2 uses image labels plus sever
 disaster type; both use zero modality dropout. Their active heads, calibration, predictions
 and frozen evaluators follow the same setting. Train seeds 0–2 on the standard split and
 one seed per seven held-out events; derive B3 late fusion from their calibrated dev
-probabilities after the pairs complete. These baseline runs are pending hosted GPU time.
+probabilities after the pairs complete. Standard B1 and B2 seed 0 are restored and
+frozen; the remaining baseline runs are queued for hosted GPU time.
 After restoring each standard B1/B2 run, `sakshi-model evaluate-modality --run
 runs/classifier/<run_id>` freezes and scores the original CrisisMMD text or image labels
 on the two fixed 2,237-row official task roles. It writes separate per-modality metrics,
@@ -23,6 +24,12 @@ CUDA run completed on 2026-10-24 and was restored locally as
 The seed 0 official test is now frozen and scored; see
 [`classifier.md`](../reports/results/classifier.md). CPU tests exercise the workflow with a
 small encoder; the hosted run also passed the full encoder's CUDA smoke.
+Full seed 1 and the first Harvey LOEO fold are also restored and frozen. Full seed 2
+and Sri Lanka LOEO were running at the 2026-10-25 checkpoint. The seed 0 B1 and B2
+original-modality evaluations each cover 2,237 text or image task-role rows per head;
+their metrics are in the corresponding `runs/classifier/b1-text-s0-20261025-065051/`
+and `runs/classifier/b2-image-s0-20261025-065121/` directories. Do not treat a
+single seed as the completed baseline study.
 
 ## 1. Prepare the input bundle locally
 
