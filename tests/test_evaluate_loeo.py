@@ -64,6 +64,9 @@ def test_loeo_rejects_training_leakage_and_foreign_prediction():
     leaked.loc[leaked.sample_id == "a", "loeo_hurricane_harvey"] = "train"
     with pytest.raises(ValueError, match="leaked"):
         evaluate_loeo_predictions(leaked, predictions.iloc[1:], event="hurricane_harvey", bootstrap=2)
+    leaked.loc[leaked.sample_id == "a", "loeo_hurricane_harvey"] = "dev"
+    with pytest.raises(ValueError, match="leaked"):
+        evaluate_loeo_predictions(leaked, predictions.iloc[1:], event="hurricane_harvey", bootstrap=2)
     with pytest.raises(ValueError, match="exactly one held-out event"):
         evaluate_loeo_predictions(manifest, predictions.iloc[1:], event="hurricane_harvey", bootstrap=2)
 

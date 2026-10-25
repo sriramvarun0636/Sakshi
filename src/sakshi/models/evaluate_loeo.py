@@ -70,8 +70,8 @@ def evaluate_loeo_predictions(
     test = manifest.loc[manifest[column] == "test"]
     if test.empty or not (test.event == event).all() or not (test.dataset == "crisismmd").all():
         raise ValueError("LOEO test role must contain only the held-out CrisisMMD event")
-    if ((manifest.event == event) & (manifest[column] == "train")).any():
-        raise ValueError("held-out event leaked into the LOEO training role")
+    if ((manifest.event == event) & manifest[column].isin(("train", "dev"))).any():
+        raise ValueError("held-out event leaked into the LOEO training or development role")
     if set(predictions.sample_id) != set(test.sample_id) or predictions.model_id.nunique() != 1:
         raise ValueError("LOEO predictions must cover exactly one held-out event and model")
     aligned = test.merge(predictions, on="sample_id", how="left", validate="one_to_one", indicator=True)
