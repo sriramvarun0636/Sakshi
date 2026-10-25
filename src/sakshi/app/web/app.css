@@ -1550,8 +1550,13 @@ main {
 .report-paper code {
   font-size: 11px;
 }
-.figure-card {
+.figure-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
   margin-top: 30px;
+}
+.figure-card {
   background: var(--paper2);
   border: 1px solid var(--line);
   padding: 22px;
@@ -1957,6 +1962,9 @@ main {
     font-size: 15.8vw;
   }
   .report-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .figure-gallery {
     grid-template-columns: minmax(0, 1fr);
   }
 }

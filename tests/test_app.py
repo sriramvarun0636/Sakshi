@@ -148,6 +148,30 @@ def test_fieldroom_starts_with_no_artifacts(tmp_path, monkeypatch):
     assert web_server._results_view(None, True)["reports"] == []
 
 
+def test_fieldroom_results_show_figures_for_selected_report(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from sakshi.app import web_server
+
+    reports = tmp_path / "reports" / "results"
+    figures = tmp_path / "reports" / "figures"
+    reports.mkdir(parents=True)
+    figures.mkdir()
+    (reports / "baselines_seed0.md").write_text("# Baselines\n")
+    (reports / "classifier_three_seed.md").write_text("# Three seeds\n")
+    (reports / "faithfulness_dev.md").write_text("# Development\n")
+    for name in ("classifier_seed2_reliability.png", "classifier_seed2_risk_coverage.png", "faithfulness_curves_dev.png"):
+        Image.new("RGB", (20, 20), "white").save(figures / name)
+    monkeypatch.setattr(web_server, "ROOT", tmp_path)
+    selected = web_server._results_view(None, True)
+    assert selected["selected"] == "classifier_three_seed"
+    assert len(selected["figures"]) == 2
+    assert all("SEED 2" in figure["label"] for figure in selected["figures"])
+    assert web_server._results_view("baselines_seed0", True)["figures"] == []
+    development = web_server._results_view("faithfulness_dev", True)
+    assert len(development["figures"]) == 1 and "DEVELOPMENT" in development["figures"][0]["label"]
+
+
 def test_fieldroom_review_uses_opaque_token_and_sanitized_text(tmp_path, monkeypatch):
     from sakshi.app import web_server
 

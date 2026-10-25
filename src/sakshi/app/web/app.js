@@ -1017,14 +1017,21 @@ function resultsHtml(data) {
           "sakshi-model evaluate --run <frozen-run>",
         )) +
     "</article></div>" +
-    (data.figure
-      ? '<div class="figure-card"><small>DEVELOPMENT FIGURE / ' +
-        (presentation.checked
-          ? "FACE-BLURRED SAFE VIEW"
-          : "PRESENTATION MODE OFF") +
-        '</small><img src="' +
-        data.figure +
-        '" alt="Faithfulness curves development figure"><p class="micro micro-mute">INSPECT EXPORTED FIGURES BY HAND BEFORE SUBMISSION.</p></div>'
+    (data.figures?.length
+      ? '<div class="figure-gallery">' +
+        data.figures
+          .map(
+            (figure) =>
+              '<div class="figure-card"><small>' +
+              esc(figure.label) +
+              '</small><img src="' +
+              figure.src +
+              '" alt="' +
+              esc(figure.alt) +
+              '"><p class="micro micro-mute">SOURCE: FROZEN REPORT ARTIFACT</p></div>',
+          )
+          .join("") +
+        "</div>"
       : "") +
     "</div></div>"
   );

@@ -341,9 +341,34 @@ def _save_review(token: str, decision: str) -> dict:
 
 def _results_view(name: str | None, presentation: bool) -> dict:
     reports = data.report_files(ROOT)
-    selected = next((path for path in reports if path.stem == name), reports[0] if reports else None)
-    figure = ROOT / "reports" / "figures" / "faithfulness_curves_dev.png"
-    preview = load_thumbnail(figure, presentation=presentation, max_side=1600) if figure.is_file() else None
+    preferred = ("classifier_three_seed", "comparison_seed0_trained", "classifier")
+    default = next((path for stem in preferred for path in reports if path.stem == stem), reports[0] if reports else None)
+    selected = next((path for path in reports if path.stem == name), default)
+    figure_names = {
+        "classifier_three_seed": (
+            ("classifier_seed2_reliability.png", "SEED 2 / OFFICIAL TEST CALIBRATION"),
+            ("classifier_seed2_risk_coverage.png", "SEED 2 / REVIEW RISK AND COVERAGE"),
+        ),
+        "classifier_seed2": (
+            ("classifier_seed2_reliability.png", "OFFICIAL TEST CALIBRATION"),
+            ("classifier_seed2_risk_coverage.png", "REVIEW RISK AND COVERAGE"),
+        ),
+        "classifier_seed1": (
+            ("classifier_seed1_reliability.png", "OFFICIAL TEST CALIBRATION"),
+            ("classifier_seed1_risk_coverage.png", "REVIEW RISK AND COVERAGE"),
+        ),
+        "classifier": (
+            ("classifier_seed0_reliability.png", "OFFICIAL TEST CALIBRATION"),
+            ("classifier_seed0_risk_coverage.png", "REVIEW RISK AND COVERAGE"),
+        ),
+        "faithfulness_dev": (("faithfulness_curves_dev.png", "DEVELOPMENT CHECK / FAITHFULNESS"),),
+    }
+    figures = []
+    for filename, label in figure_names.get(selected.stem if selected else "", ()):
+        path = ROOT / "reports" / "figures" / filename
+        if path.is_file():
+            thumbnail = load_thumbnail(path, presentation=presentation, max_side=1600)
+            figures.append({"label": label, "src": _image_url(thumbnail, max_side=1600), "alt": path.stem.replace("_", " ")})
 
     def kind(path: Path) -> str:
         if "dev" in path.stem:
@@ -360,8 +385,7 @@ def _results_view(name: str | None, presentation: bool) -> dict:
         "content": "\n".join(display_text(line) for line in selected.read_text(encoding="utf-8").splitlines())
         if selected
         else "",
-        "figure": _image_url(preview, max_side=1600),
-        "figure_preview": True,
+        "figures": figures,
     }
 
 
