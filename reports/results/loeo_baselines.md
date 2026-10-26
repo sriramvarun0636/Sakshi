@@ -7,12 +7,13 @@ Macro-F1 averages only classes present in that event's gold labels.
 
 ## B1 text only
 
-Frozen folds: **2/7**. Missing: srilanka_floods, hurricane_irma, mexico_earthquake, california_wildfires, iraq_iran_earthquake.
+Frozen folds: **3/7**. Missing: srilanka_floods, hurricane_irma, california_wildfires, iraq_iran_earthquake.
 
 | Held-out event | Rows | Informative n / F1 | Humanitarian n / F1 |
 |---|---:|---:|---:|
 | Hurricane Harvey | 4,435 | 3,157 / 0.849 | 1,954 / 0.735 |
 | Hurricane Maria | 4,556 | 3,101 / 0.823 | 2,228 / 0.670 |
+| Mexico Earthquake | 1,380 | 1,114 / 0.676 | 585 / 0.622 |
 
 ## B2 image only
 
