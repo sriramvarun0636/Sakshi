@@ -26,11 +26,12 @@ import shutil
 import sys
 from pathlib import Path
 
-BASE = Path('/kaggle/input/sakshi-gpu-inputs-20261025')
-delta_candidates = [path.parent for path in Path('/kaggle/input').glob('*/inventory.json')]
-if len(delta_candidates) != 1:
-    raise RuntimeError(f'expected one mounted XAI inventory, found {delta_candidates}; inputs={list(Path("/kaggle/input").iterdir())}')
-DELTA = delta_candidates[0]
+base_candidates = sorted(Path('/kaggle/input').rglob('bundle.json'))
+delta_candidates = sorted(Path('/kaggle/input').rglob('inventory.json'))
+if len(base_candidates) != 1 or len(delta_candidates) != 1:
+    raise RuntimeError(f'expected one mounted source bundle and one XAI inventory; found {base_candidates}, {delta_candidates}')
+BASE = base_candidates[0].parent
+DELTA = delta_candidates[0].parent
 ROOT = Path('/kaggle/working/sakshi/source')
 PROCESSED = ROOT / 'data/processed'
 inventory = json.loads((DELTA / 'inventory.json').read_text())
