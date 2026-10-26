@@ -235,6 +235,12 @@ def _sitrep_view(event: str, index: int, presentation: bool) -> dict:
         "citations": citations,
         "rates": report.get("verification_rate", {}),
         "models": report.get("models", {}),
+        "model_display": (
+            "Qwen2.5-7B · DeBERTa NLI · uncalibrated thresholds"
+            if source.provenance and source.provenance.get("threshold_status") == "uncalibrated_default_no_human_review"
+            else "Automated LLM and evidence verifier"
+        ),
+        "verification_note": "Automated checks against cited posts; human audit pending",
         "mode": source.mode,
     }
 

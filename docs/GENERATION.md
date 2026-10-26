@@ -28,7 +28,11 @@ respectively. All three WP4 research aggregates and the balanced 53-window evalu
 plan are frozen. A laptop Ollama run produced five Harvey windows before being stopped
 for heat. Separate, private Kaggle GPU jobs now generate the research sitreps using
 pinned Qwen2.5-7B-Instruct and DeBERTa NLI snapshots; their outputs are under
-`runs/sitreps_hf/`. The first Harvey job is running, and Maria and Mexico are queued.
+`runs/sitreps_hf/`. All three jobs completed and their 53 selected windows were
+restored after hash checks. The computed verifier summary is
+`reports/generation/summary_hf.md`; 13 windows record a generation failure, including
+11 that display system lines only. The 50-sentence Harvey calibration sheet is ready
+locally with blank labels.
 The fake-backend integration test verifies file and logic flow; it is not a
 model-quality result. Two independent reviewers and an adjudicator are unavailable,
 so human calibration and evaluation scores remain pending and must not be replaced

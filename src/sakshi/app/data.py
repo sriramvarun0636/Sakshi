@@ -31,6 +31,7 @@ class SitrepSource:
     event: str
     mode: str
     windows: tuple[Path, ...]
+    provenance: dict | None = None
 
 
 def read_json(path: Path) -> dict:
@@ -83,19 +84,23 @@ def preferred_aggregates(root: Path = paths.REPO) -> dict[str, AggregateSource]:
 
 def sitreps(root: Path = paths.REPO) -> dict[str, SitrepSource]:
     result: dict[str, SitrepSource] = {}
-    for marker in sorted((root / "runs" / "sitreps").glob("*/*/complete.json"), reverse=True):
-        try:
-            done = read_json(marker)
-            windows = tuple(sorted(path for path in marker.parent.glob("*.json") if _WINDOW.fullmatch(path.name)))
-            if not windows or len(windows) != done["windows"]:
+    for folder in ("sitreps_hf", "sitreps"):
+        for marker in sorted((root / "runs" / folder).glob("*/*/complete.json"), reverse=True):
+            try:
+                done = read_json(marker)
+                windows = tuple(sorted(path for path in marker.parent.glob("*.json") if _WINDOW.fullmatch(path.name)))
+                if not windows or len(windows) != done["windows"]:
+                    continue
+                sample = read_json(windows[0])
+                event = str(sample["event"])
+                provenance_path = marker.parent / "model_provenance.json"
+                provenance = read_json(provenance_path) if provenance_path.is_file() else None
+                result.setdefault(
+                    event,
+                    SitrepSource(marker.parent, str(sample["models"]["classifier"]), event, done["mode"], windows, provenance),
+                )
+            except (OSError, ValueError, KeyError, TypeError):
                 continue
-            sample = read_json(windows[0])
-            event = str(sample["event"])
-            result.setdefault(
-                event, SitrepSource(marker.parent, str(sample["models"]["classifier"]), event, done["mode"], windows)
-            )
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
     return result
 
 

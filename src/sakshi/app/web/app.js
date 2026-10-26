@@ -697,7 +697,7 @@ function sitrepHtml(data) {
     '<div class="page"><div class="page-inner">' +
     pageIndex("03", "SITUATION REPORT") +
     '<div class="document-page"><div class="document-rail"><span class="micro micro-orange">EVIDENCE<br>WITH RECEIPTS</span><span class="vertical-label">VERIFIED GENERATION / 03</span><span class="micro">SAKSHI<br>RESEARCH</span></div><div class="document-body"><div class="document-header"><span>FIELD DOCUMENT / 03</span><span>' +
-    (data.available ? "CITED & VERIFIED" : "AWAITING EVIDENCE") +
+    (data.available ? "AUTOMATED EVIDENCE CHECK" : "AWAITING EVIDENCE") +
     '</span></div><h1>Claims,<br><em>with receipts.</em></h1><p class="lede">Each sentence needs an evidence trail. Rejected claims stay in view so the verifier can be questioned too.</p>' +
     selector +
     (data.available
@@ -710,11 +710,9 @@ function sitrepHtml(data) {
         '" value="' +
         data.window +
         '"></div><div class="micro micro-mute" style="margin-top:16px">' +
-        esc(data.models.classifier) +
-        " / " +
-        esc(data.models.llm) +
-        " / " +
-        esc(data.models.nli) +
+        esc(data.model_display) +
+        '</div><div class="micro micro-mute" style="margin-top:6px">' +
+        esc(data.verification_note) +
         "</div>"
       : "") +
     body +

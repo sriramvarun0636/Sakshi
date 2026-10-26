@@ -636,8 +636,8 @@ def sitrep_page(presentation: bool) -> None:
     st.markdown(
         ui.pill(source.mode, "dim")
         + ui.pill(report["models"]["classifier"], "dim")
-        + ui.pill(report["models"]["llm"], "dim")
-        + ui.pill(report["models"]["nli"], "dim"),
+        + ui.pill("Qwen2.5-7B · DeBERTa NLI" if source.provenance else "Automated LLM + NLI", "dim")
+        + ui.pill("Uncalibrated · human audit pending" if source.provenance else "Human audit pending", "dim"),
         unsafe_allow_html=True,
     )
     ui.section("System observations", report["window"]["start"][:16].replace("T", " ") + " UTC")
