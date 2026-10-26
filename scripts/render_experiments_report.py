@@ -88,11 +88,13 @@ def effect(
     boot = np.empty(draws)
     for i in range(draws):
         take = rng.integers(0, len(truth), len(truth))
-        boot[i] = np.mean([
-            metrics.classification(truth[take], variant[take], classes)["macro_f1"]
-            - metrics.classification(truth[take], baseline[take], classes)["macro_f1"]
-            for baseline, variant in arrays
-        ])
+        boot[i] = np.mean(
+            [
+                metrics.classification(truth[take], variant[take], classes)["macro_f1"]
+                - metrics.classification(truth[take], baseline[take], classes)["macro_f1"]
+                for baseline, variant in arrays
+            ]
+        )
     scores = np.asarray(scores)
     delta = scores[:, 1] - scores[:, 0]
     return (
@@ -133,10 +135,13 @@ def render() -> str:
                 continue
             n, baseline, variant, delta, low, high, seed_sd = effect(manifest, full, runs, task)
             lines.append(
-                f"| {name} | {n:,} | {baseline:.3f} | {variant:.3f} | "
-                f"{delta:+.3f} [{low:+.3f}, {high:+.3f}] | {seed_sd:.3f} |"
+                f"| {name} | {n:,} | {baseline:.3f} | {variant:.3f} | {delta:+.3f} [{low:+.3f}, {high:+.3f}] | {seed_sd:.3f} |"
             )
-    lines += ["", "The experiments share fixed official selectors, but the many reported effects have no multiple-comparison correction.", ""]
+    lines += [
+        "",
+        "The experiments share fixed official selectors, but the many reported effects have no multiple-comparison correction.",
+        "",
+    ]
     return "\n".join(lines)
 
 

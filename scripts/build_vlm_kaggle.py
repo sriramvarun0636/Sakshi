@@ -12,7 +12,7 @@ JOB = ROOT / "runs/transfer/kaggle_jobs/b6-vlm"
 MODEL = "Qwen/Qwen2.5-VL-3B-Instruct"
 REVISION = "66285546d2b821cf421d4f5eb2576359d3770cd3"
 
-SETUP = r'''
+SETUP = r"""
 import hashlib, json, os, sys
 from pathlib import Path
 
@@ -50,17 +50,19 @@ work = Path('/kaggle/working/b6')
 work.mkdir(parents=True, exist_ok=True)
 rows = manifest.loc[manifest.sample_id.astype(str).isin(selected)].sort_values('sample_id')
 print({'official_union': len(rows), 'image_root': str(image_root), 'model': 'Qwen/Qwen2.5-VL-3B-Instruct'})
-'''
+"""
 
-INSTALL = r'''
+INSTALL = r"""
 import subprocess
-subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', 'transformers==4.57.1', 'accelerate>=1.0,<2', 'ftfy==6.3.1'], check=True)
-'''
+subprocess.run(
+    [sys.executable, '-m', 'pip', 'install', '--quiet',
+     'transformers==4.57.1', 'accelerate>=1.0,<2', 'ftfy==6.3.1'],
+    check=True,
+)
+"""
 
 INFER = r"""
 import gc, html, json, re, time
-from collections import Counter
-from pathlib import Path
 
 import ftfy
 import torch
@@ -71,11 +73,18 @@ MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
 MODEL_REVISION = '66285546d2b821cf421d4f5eb2576359d3770cd3'
 CLASSES = {
     'informative': ['not_informative', 'informative'],
-    'humanitarian': ['affected_individuals', 'infrastructure_and_utility_damage', 'not_humanitarian', 'other_relevant_information', 'rescue_volunteering_or_donation_effort'],
+    'humanitarian': [
+        'affected_individuals', 'infrastructure_and_utility_damage',
+        'not_humanitarian', 'other_relevant_information',
+        'rescue_volunteering_or_donation_effort',
+    ],
     'damage_severity': ['little_or_no_damage', 'mild_damage', 'severe_damage'],
     'disaster_type': ['earthquake', 'fire', 'flood', 'hurricane', 'landslide', 'not_disaster', 'other_disaster'],
 }
-GOLD = {'informative': 'y_informative', 'humanitarian': 'y_humanitarian', 'damage_severity': 'y_severity', 'disaster_type': 'y_disaster_type'}
+GOLD = {
+    'informative': 'y_informative', 'humanitarian': 'y_humanitarian',
+    'damage_severity': 'y_severity', 'disaster_type': 'y_disaster_type',
+}
 majority = {}
 for head, gold in GOLD.items():
     counts = manifest.loc[(manifest['split'] == 'train') & manifest[gold].notna(), gold].astype(str).value_counts()
@@ -83,7 +92,10 @@ for head, gold in GOLD.items():
 if not torch.cuda.is_available():
     raise RuntimeError('B6 requires a Kaggle GPU')
 processor = AutoProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION, min_pixels=28*28*16, max_pixels=28*28*256)
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.float16, device_map='cuda:0', attn_implementation='sdpa').eval()
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.float16,
+    device_map='cuda:0', attn_implementation='sdpa',
+).eval()
 PROMPT = '''You are annotating social-media posts about disasters for humanitarian response.
 Look at the image and read the post text, then answer with JSON only, in this form:
 {"informative": ..., "humanitarian": ..., "damage_severity": ..., "disaster_type": ...}
@@ -107,7 +119,15 @@ Post text: {text_clean}'''
 MENTION = re.compile(r'@\w+')
 URL = re.compile(r'https?://\S+|www\.\S+', re.I)
 SPACE = re.compile(r'\s+')
-SYNONYMS = {'not informative': 'not_informative', 'not humanitarian': 'not_humanitarian', 'little or no damage': 'little_or_no_damage', 'mild damage': 'mild_damage', 'severe damage': 'severe_damage', 'other disaster': 'other_disaster', 'not disaster': 'not_disaster'}
+SYNONYMS = {
+    'not informative': 'not_informative',
+    'not humanitarian': 'not_humanitarian',
+    'little or no damage': 'little_or_no_damage',
+    'mild damage': 'mild_damage',
+    'severe damage': 'severe_damage',
+    'other disaster': 'other_disaster',
+    'not disaster': 'not_disaster',
+}
 
 def clean_text(row):
     if row.dataset == 'cib' or not isinstance(row.text, str) or not row.text.strip():
@@ -171,22 +191,35 @@ for index, row in enumerate(rows.itertuples(index=False), 1):
     try:
         labels = parse(raw)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        repair = prompt + '\n\nYour previous answer was invalid: ' + str(exc) + '\nReturn only one valid JSON object with exactly the four requested enum-valued fields.'
+        repair = (
+            prompt + '\n\nYour previous answer was invalid: ' + str(exc)
+            + '\nReturn only one valid JSON object with exactly the four requested enum-valued fields.'
+        )
         retry_raw = infer(image, repair)
         try:
             labels = parse(retry_raw)
         except (ValueError, TypeError, json.JSONDecodeError):
             labels = majority.copy()
             failed = True
-    item = {'sample_id': sample_id, 'labels': labels, 'raw': raw, 'retry_raw': retry_raw, 'failed': failed, 'latency_seconds': time.perf_counter() - start}
+    item = {
+        'sample_id': sample_id, 'labels': labels, 'raw': raw,
+        'retry_raw': retry_raw, 'failed': failed,
+        'latency_seconds': time.perf_counter() - start,
+    }
     with output.open('a', encoding='utf-8') as stream:
         stream.write(json.dumps(item, ensure_ascii=False) + '\n')
     if index % 100 == 0:
-        print({'completed': index, 'total': len(rows), 'failures': sum(json.loads(line)['failed'] for line in output.read_text().splitlines())}, flush=True)
+        failures = sum(json.loads(line)['failed'] for line in output.read_text().splitlines())
+        print({'completed': index, 'total': len(rows), 'failures': failures}, flush=True)
     del image
     if index % 500 == 0:
         gc.collect()
-record = {'model': MODEL_ID, 'revision': MODEL_REVISION, 'temperature': 0, 'max_new_tokens': 128, 'max_pixels': 28*28*256, 'prompt': PROMPT, 'majority': majority, 'rows': len(rows), 'manifest_sha256': image_inventory['manifest_sha256']}
+record = {
+    'model': MODEL_ID, 'revision': MODEL_REVISION, 'temperature': 0,
+    'max_new_tokens': 128, 'max_pixels': 28*28*256,
+    'prompt': PROMPT, 'majority': majority, 'rows': len(rows),
+    'manifest_sha256': image_inventory['manifest_sha256'],
+}
 (work / 'protocol.json').write_text(json.dumps(record, indent=2, ensure_ascii=False) + '\n')
 print({'complete': sum(1 for _ in output.open()), 'output': str(output)})
 """
@@ -198,7 +231,10 @@ def build() -> Path:
         metadata={"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}}
     )
     notebook.cells = [
-        nbformat.v4.new_markdown_cell("# SAKSHI B6 · zero-shot VLM\n\nPrivate official-test inference with the Appendix E.7 prompt. The 3B fallback fits a T4 without quantization. This notebook does not train or calibrate on test labels."),
+        nbformat.v4.new_markdown_cell(
+            "# SAKSHI B6 · zero-shot VLM\n\nPrivate official-test inference with the Appendix E.7 prompt. "
+            "The 3B fallback fits a T4 without quantization. This notebook does not train or calibrate on test labels."
+        ),
         nbformat.v4.new_code_cell(SETUP),
         nbformat.v4.new_code_cell(INSTALL),
         nbformat.v4.new_code_cell(INFER),
@@ -224,7 +260,9 @@ def build() -> Path:
         "kernel_sources": [],
         "competition_sources": [],
         "model_sources": [],
-        "docker_image": "gcr.io/kaggle-private-byod/python@sha256:9a6bcfda6d03b2cd9aa347ee8c1bae62043328ed0f4afe9bda014e4f8bbf9435",
+        "docker_image": (
+            "gcr.io/kaggle-private-byod/python@sha256:9a6bcfda6d03b2cd9aa347ee8c1bae62043328ed0f4afe9bda014e4f8bbf9435"
+        ),
         "machine_shape": "NvidiaTeslaT4",
     }
     (JOB / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")

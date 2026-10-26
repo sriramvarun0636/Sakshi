@@ -31,7 +31,11 @@ def score(gold: np.ndarray, predicted: np.ndarray, classes: list[str], *, draws:
         samples[index] = metrics.classification(gold[take], predicted[take], classes)["macro_f1"]
     return {
         "n": len(gold),
-        "macro_f1": {"point": point["macro_f1"], "lo": float(np.quantile(samples, 0.025)), "hi": float(np.quantile(samples, 0.975))},
+        "macro_f1": {
+            "point": point["macro_f1"],
+            "lo": float(np.quantile(samples, 0.025)),
+            "hi": float(np.quantile(samples, 0.975)),
+        },
         "weighted_f1": point["weighted_f1"],
         "accuracy": point["accuracy"],
         "per_class": point["per_class"],
@@ -70,10 +74,12 @@ def evaluate(predictions: Path, output: Path) -> dict:
         heads[head] = score(gold, pred, selectors.HEAD_LABELS[head])
         heads[head]["failure_rate"] = float(np.mean([by_id[str(sample)]["failed"] for sample in part.sample_id]))
     latency = np.asarray([row["latency_seconds"] for row in rows], dtype=float)
-    contradiction = np.mean([
-        (row["labels"]["informative"] == "not_informative") != (row["labels"]["humanitarian"] == "not_humanitarian")
-        for row in rows
-    ])
+    contradiction = np.mean(
+        [
+            (row["labels"]["informative"] == "not_informative") != (row["labels"]["humanitarian"] == "not_humanitarian")
+            for row in rows
+        ]
+    )
     result = {
         "baseline_id": "B6",
         "model": meta["model"],
@@ -83,7 +89,11 @@ def evaluate(predictions: Path, output: Path) -> dict:
         "n_unique_posts": len(rows),
         "failed": sum(bool(row["failed"]) for row in rows),
         "failure_rate": float(np.mean([row["failed"] for row in rows])),
-        "latency_seconds": {"mean": float(latency.mean()), "median": float(np.median(latency)), "p95": float(np.quantile(latency, 0.95))},
+        "latency_seconds": {
+            "mean": float(latency.mean()),
+            "median": float(np.median(latency)),
+            "p95": float(np.quantile(latency, 0.95)),
+        },
         "hierarchy_contradiction_rate": float(contradiction),
         "heads": heads,
         "calibration": "not applicable: zero-shot JSON labels have no class probabilities",
