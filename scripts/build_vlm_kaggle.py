@@ -166,6 +166,16 @@ def infer(image, prompt):
     return decoded
 
 output = work / 'predictions.jsonl'
+record = {
+    'model': MODEL_ID, 'revision': MODEL_REVISION, 'temperature': 0,
+    'max_new_tokens': 128, 'max_pixels': 28*28*256,
+    'prompt': PROMPT, 'majority': majority, 'rows': len(rows),
+    'manifest_sha256': image_inventory['manifest_sha256'],
+}
+protocol = work / 'protocol.json'
+if protocol.exists() and json.loads(protocol.read_text()) != record:
+    raise RuntimeError('B6 protocol changed since the saved predictions')
+protocol.write_text(json.dumps(record, indent=2, ensure_ascii=False) + '\n')
 completed = {}
 if output.exists():
     for line in output.read_text().splitlines():
@@ -214,13 +224,6 @@ for index, row in enumerate(rows.itertuples(index=False), 1):
     del image
     if index % 500 == 0:
         gc.collect()
-record = {
-    'model': MODEL_ID, 'revision': MODEL_REVISION, 'temperature': 0,
-    'max_new_tokens': 128, 'max_pixels': 28*28*256,
-    'prompt': PROMPT, 'majority': majority, 'rows': len(rows),
-    'manifest_sha256': image_inventory['manifest_sha256'],
-}
-(work / 'protocol.json').write_text(json.dumps(record, indent=2, ensure_ascii=False) + '\n')
 print({'complete': sum(1 for _ in output.open()), 'output': str(output)})
 """
 
