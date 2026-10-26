@@ -208,7 +208,7 @@ def build() -> Path:
     nbformat.validate(notebook)
     nbformat.write(notebook, path)
     metadata = {
-        "id": "varun0636/sakshi-b6-vlm",
+        "id": "varun0636/sakshi-b6-vlm-zero-shot",
         "title": "SAKSHI B6 VLM zero shot",
         "code_file": path.name,
         "language": "python",
