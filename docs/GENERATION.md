@@ -22,12 +22,17 @@ indices come from its `id2label`. The default thresholds are `0.5` and `0.3` unt
 Harvey calibration study chooses an entailment threshold. A Qwen tokenizer checks
 the prompt budget before a real backend call; 200 tokens are reserved for retry text.
 
-The Harvey LOEO classifier is trained and its held-out evaluation is frozen. Its WP4
-packet plan selects 504 samples across 18 windows; the real explanation pass is in
-progress. No completed research aggregate or sitrep is claimed yet. The fake-backend
-integration test verifies file and logic flow; it is not a model-quality result. Two
-independent reviewers and an adjudicator are unavailable, so the human calibration and
-evaluation scores remain pending and must not be replaced with model-generated labels.
+The Harvey, Maria and Mexico LOEO classifiers and their held-out evaluations are frozen.
+Their real evidence packets are complete and validated: 504, 666 and 279 posts,
+respectively. All three WP4 research aggregates and the balanced 53-window evaluation
+plan are frozen. A laptop Ollama run produced five Harvey windows before being stopped
+for heat. Separate, private Kaggle GPU jobs now generate the research sitreps using
+pinned Qwen2.5-7B-Instruct and DeBERTa NLI snapshots; their outputs are under
+`runs/sitreps_hf/`. The first Harvey job is running, and Maria and Mexico are queued.
+The fake-backend integration test verifies file and logic flow; it is not a
+model-quality result. Two independent reviewers and an adjudicator are unavailable,
+so human calibration and evaluation scores remain pending and must not be replaced
+with model-generated labels.
 
 ## Prepare evidence and models
 
@@ -38,9 +43,9 @@ pip install -e ".[dev,ml,xai,aggregate,llm]"
 ollama pull qwen2.5:7b-instruct
 ```
 
-Create and score the LOEO classifier folds for Maria and Mexico. Harvey is complete.
-Run WP2 replay, generate captions for selected images on a CUDA host if wanted, then
-plan and produce same-model packets for the posts WP4 actually selects:
+The three LOEO classifier folds, WP2 predictions, same-model packets and WP4 aggregates
+have already been produced. The commands below document the reproducible packet flow
+for a new event or a fresh checkout:
 
 ```bash
 sakshi-aggregate --model-id full-s0-loeo_hurricane_harvey --event hurricane_harvey \
@@ -96,9 +101,10 @@ and images. Then run:
 sakshi-generate audit-score --phase calibration
 ```
 
-The chosen `tau_entail` is in `reports/generation/audit_calibration.json`. Put that
-value in a copy of the generation config and use that copy for Maria and Mexico. Keep
-`tau_contra: 0.3` unless the protocol is explicitly amended on calibration data.
+The chosen `tau_entail` is in `reports/generation/audit_calibration.json`. With no
+reviewers available, the ongoing Kaggle runs use the design spec's explicit uncalibrated
+defaults, `tau_entail: 0.5` and `tau_contra: 0.3`. They must be labelled as
+uncalibrated outputs, and the human-study acceptance claim remains open.
 
 ```bash
 sakshi-generate sitreps --config configs/generation/sitrep-calibrated.yaml \
