@@ -26,6 +26,20 @@ VARIANTS = {
 }
 
 
+def _indexed(labels: np.ndarray, classes: list[str]) -> np.ndarray:
+    mapping = {name: index for index, name in enumerate(classes)}
+    return np.asarray([mapping.get(value, len(classes)) for value in labels], dtype=np.int64)
+
+
+def _macro_from_indices(gold: np.ndarray, predicted: np.ndarray, n_classes: int) -> float:
+    counts = np.bincount(gold * (n_classes + 1) + predicted, minlength=n_classes * (n_classes + 1))
+    confusion = counts.reshape(n_classes, n_classes + 1)
+    true_positive = np.diag(confusion[:, :n_classes])
+    denominator = confusion.sum(axis=1) + confusion[:, :n_classes].sum(axis=0)
+    f1 = np.divide(2 * true_positive, denominator, out=np.zeros(n_classes), where=denominator > 0)
+    return float(f1.mean())
+
+
 def frozen_run(prefix: str, seed: int) -> tuple[Path, dict] | None:
     matches = sorted((paths.REPO / "runs/classifier").glob(f"{prefix}-s{seed}-20*"))
     if not matches:
@@ -84,15 +98,18 @@ def effect(
     if any(len(left) != len(gold_frame) for left, _ in arrays):
         raise ValueError("seed predictions are not aligned to the same official selector")
     truth = gold_frame[gold_column].astype(str).to_numpy(dtype=object)
+    gold_indices = _indexed(truth, classes)
+    indexed = [(_indexed(baseline, classes), _indexed(variant, classes)) for baseline, variant in arrays]
     rng = np.random.default_rng(0)
     boot = np.empty(draws)
     for i in range(draws):
         take = rng.integers(0, len(truth), len(truth))
+        sampled_gold = gold_indices[take]
         boot[i] = np.mean(
             [
-                metrics.classification(truth[take], variant[take], classes)["macro_f1"]
-                - metrics.classification(truth[take], baseline[take], classes)["macro_f1"]
-                for baseline, variant in arrays
+                _macro_from_indices(sampled_gold, variant[take], len(classes))
+                - _macro_from_indices(sampled_gold, baseline[take], len(classes))
+                for baseline, variant in indexed
             ]
         )
     scores = np.asarray(scores)
