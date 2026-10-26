@@ -56,7 +56,8 @@ INSTALL = r"""
 import subprocess
 subprocess.run(
     [sys.executable, '-m', 'pip', 'install', '--quiet',
-     'transformers==4.57.1', 'accelerate>=1.0,<2', 'ftfy==6.3.1'],
+     'transformers==4.57.1', 'accelerate>=1.0,<2',
+     'bitsandbytes==0.50.2', 'ftfy==6.3.1'],
     check=True,
 )
 """
@@ -67,10 +68,12 @@ import gc, html, json, re, time
 import ftfy
 import torch
 from PIL import Image
-from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
+from transformers import AutoProcessor, BitsAndBytesConfig, Qwen2_5_VLForConditionalGeneration
 
-MODEL_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
-MODEL_REVISION = '66285546d2b821cf421d4f5eb2576359d3770cd3'
+MODEL_ID = 'Qwen/Qwen2.5-VL-7B-Instruct'
+MODEL_REVISION = 'cc594898137f460bfe9f0759e9844b3ce807cfb5'
+FALLBACK_ID = 'Qwen/Qwen2.5-VL-3B-Instruct'
+FALLBACK_REVISION = '66285546d2b821cf421d4f5eb2576359d3770cd3'
 CLASSES = {
     'informative': ['not_informative', 'informative'],
     'humanitarian': [
@@ -91,11 +94,31 @@ for head, gold in GOLD.items():
     majority[head] = str(counts.idxmax())
 if not torch.cuda.is_available():
     raise RuntimeError('B6 requires a Kaggle GPU')
-processor = AutoProcessor.from_pretrained(MODEL_ID, revision=MODEL_REVISION, min_pixels=28*28*16, max_pixels=28*28*256)
-model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-    MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.float16,
-    device_map='cuda:0', attn_implementation='sdpa',
-).eval()
+quantization = 'bitsandbytes-nf4'
+fallback_reason = None
+try:
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.float16,
+        device_map='auto', attn_implementation='sdpa',
+        quantization_config=BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type='nf4',
+            bnb_4bit_compute_dtype=torch.float16,
+        ),
+    ).eval()
+except torch.cuda.OutOfMemoryError as exc:
+    fallback_reason = str(exc)
+    gc.collect()
+    torch.cuda.empty_cache()
+    MODEL_ID, MODEL_REVISION = FALLBACK_ID, FALLBACK_REVISION
+    quantization = 'fp16'
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.float16,
+        device_map='auto', attn_implementation='sdpa',
+    ).eval()
+processor = AutoProcessor.from_pretrained(
+    MODEL_ID, revision=MODEL_REVISION,
+    min_pixels=28*28*16, max_pixels=28*28*256,
+)
 PROMPT = '''You are annotating social-media posts about disasters for humanitarian response.
 Look at the image and read the post text, then answer with JSON only, in this form:
 {"informative": ..., "humanitarian": ..., "damage_severity": ..., "disaster_type": ...}
@@ -167,7 +190,9 @@ def infer(image, prompt):
 
 output = work / 'predictions.jsonl'
 record = {
-    'model': MODEL_ID, 'revision': MODEL_REVISION, 'temperature': 0,
+    'model': MODEL_ID, 'revision': MODEL_REVISION,
+    'quantization': quantization, 'fallback_reason': fallback_reason,
+    'temperature': 0,
     'max_new_tokens': 128, 'max_pixels': 28*28*256,
     'prompt': PROMPT, 'majority': majority, 'rows': len(rows),
     'manifest_sha256': image_inventory['manifest_sha256'],
@@ -236,7 +261,8 @@ def build() -> Path:
     notebook.cells = [
         nbformat.v4.new_markdown_cell(
             "# SAKSHI B6 · zero-shot VLM\n\nPrivate official-test inference with the Appendix E.7 prompt. "
-            "The 3B fallback fits a T4 without quantization. This notebook does not train or calibrate on test labels."
+            "The pinned 7B model uses 4-bit NF4 weights on T4; a 3B fallback is used only after GPU out-of-memory. "
+            "This notebook does not train or calibrate on test labels."
         ),
         nbformat.v4.new_code_cell(SETUP),
         nbformat.v4.new_code_cell(INSTALL),
