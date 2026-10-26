@@ -1,0 +1,3 @@
+name: a3_no_modality_dropout
+data:
+  modality_dropout: 0.0
