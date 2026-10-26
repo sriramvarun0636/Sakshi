@@ -6,6 +6,7 @@ import argparse
 import json
 import shutil
 import subprocess
+import zipfile
 from pathlib import Path
 
 from sakshi.compute.bundle import source_files
@@ -32,7 +33,22 @@ def prepare(source_root: Path, output: Path) -> Path:
         for path in sorted((output / "source").rglob("*"))
         if path.is_file()
     ]
-    (output / "inventory.json").write_text(json.dumps({"git_commit": commit, "members": members}, indent=2) + "\n")
+    archive = output / "source.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as stream:
+        for member in members:
+            stream.write(output / member["path"], arcname=member["path"])
+    (output / "inventory.json").write_text(
+        json.dumps(
+            {
+                "git_commit": commit,
+                "members": members,
+                "archive_sha256": hash_file(archive),
+                "archive_bytes": archive.stat().st_size,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     (output / "dataset-metadata.json").write_text(
         json.dumps(
             {

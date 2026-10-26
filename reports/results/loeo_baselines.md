@@ -17,12 +17,13 @@ Frozen folds: **3/7**. Missing: srilanka_floods, hurricane_irma, california_wild
 
 ## B2 image only
 
-Frozen folds: **2/7**. Missing: srilanka_floods, hurricane_irma, mexico_earthquake, california_wildfires, iraq_iran_earthquake.
+Frozen folds: **3/7**. Missing: srilanka_floods, hurricane_irma, california_wildfires, iraq_iran_earthquake.
 
 | Held-out event | Rows | Informative n / F1 | Humanitarian n / F1 | Severity n / F1 |
 |---|---:|---:|---:|---:|
 | Hurricane Harvey | 4,435 | 3,157 / 0.868 | 1,954 / 0.719 | 892 / 0.544 |
 | Hurricane Maria | 4,556 | 3,101 / 0.877 | 2,228 / 0.748 | 862 / 0.456 |
+| Mexico Earthquake | 1,380 | 1,114 / 0.849 | 585 / 0.597 | 178 / 0.563 |
 
 The folds vary in size and class mix. These unweighted means describe transfer
 across events; they are not pooled sample scores. B3 late fusion is reported separately.
