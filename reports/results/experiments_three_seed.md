@@ -4,6 +4,7 @@ Every complete variant is compared with the corresponding full-model seed on ide
 Δ is variant minus full macro-F1. Its 95% interval resamples test posts together across all three seeds
 (1,000 paired draws); seed SD describes variation among the three trained runs.
 The interval captures test-post sampling, not uncertainty over all possible training seeds.
+B4 fits one head at a time with no auxiliary heads; its humanitarian head is flat five-class.
 
 ## A1 no cross-attention
 
@@ -56,11 +57,12 @@ Frozen seeds: **3/3**.
 | Severity, predicted gated | 529 | 0.538 | 0.567 | +0.029 [-0.003, +0.063] | 0.039 |
 | Severity, DMD | 1,138 | 0.443 | 0.682 | +0.240 [+0.221, +0.261] | 0.025 |
 | Disaster type | 3,213 | 0.856 | 0.851 | -0.005 [-0.012, +0.002] | 0.006 |
+| Severity, DMD, equal coverage | 1,138 | 0.699 | 0.682 | -0.016 [-0.033, +0.002] | 0.024 |
 
 A4 removes the informative/humanitarian constraint and the severity gate.
 Its hierarchy contradiction rate is **0.367 ± 0.017** across seeds (full model: 0).
-The large DMD severity delta includes the change from gated to ungated coverage;
-it is not an isolated gain in severity discrimination.
+The ordinary DMD severity row includes the change from gated to ungated coverage.
+The equal-coverage row forces the severity argmax for both models on all DMD posts.
 
 ## A5 no CIB training
 
@@ -79,18 +81,41 @@ after all CIB training data were removed.
 
 ## B4 informative only
 
-Frozen seeds: **0/3**.
+Frozen seeds: **3/3**.
+
+| Selector | n | Full F1 | Variant F1 | Δ [95% CI] | Seed SD of Δ |
+|---|---:|---:|---:|---:|---:|
+| Informativeness | 1,534 | 0.919 | 0.927 | +0.007 [-0.000, +0.015] | 0.004 |
 
 ## B4 humanitarian only
 
-Frozen seeds: **0/3**.
+Frozen seeds: **3/3**.
+
+| Selector | n | Full F1 | Variant F1 | Δ [95% CI] | Seed SD of Δ |
+|---|---:|---:|---:|---:|---:|
+| Humanitarian | 955 | 0.822 | 0.870 | +0.048 [+0.009, +0.088] | 0.042 |
 
 ## B4 severity only
 
-Frozen seeds: **0/3**.
+Frozen seeds: **3/3**.
+
+| Selector | n | Full F1 | Variant F1 | Δ [95% CI] | Seed SD of Δ |
+|---|---:|---:|---:|---:|---:|
+| Severity, gold gated | 529 | 0.555 | 0.555 | -0.000 [-0.035, +0.033] | 0.027 |
+| Severity, predicted gated | 529 | 0.538 | 0.555 | +0.016 [-0.021, +0.051] | 0.036 |
+| Severity, DMD | 1,138 | 0.443 | 0.676 | +0.234 [+0.212, +0.257] | 0.038 |
+| Severity, DMD, equal coverage | 1,138 | 0.699 | 0.676 | -0.023 [-0.042, -0.001] | 0.038 |
+
+The severity-only model has no informative or humanitarian head to gate its outputs.
+The ordinary DMD row therefore also reflects coverage. The equal-coverage row
+forces the severity argmax for both models on all DMD posts.
 
 ## B4 disaster type only
 
-Frozen seeds: **1/3**.
+Frozen seeds: **3/3**.
+
+| Selector | n | Full F1 | Variant F1 | Δ [95% CI] | Seed SD of Δ |
+|---|---:|---:|---:|---:|---:|
+| Disaster type | 3,213 | 0.856 | 0.858 | +0.003 [-0.003, +0.009] | 0.004 |
 
 The experiments share fixed official selectors, but the many reported effects have no multiple-comparison correction.

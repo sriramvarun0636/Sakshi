@@ -10,6 +10,7 @@ import pandas as pd
 
 from sakshi import paths
 from sakshi.compute.files import hash_file
+from sakshi.data import labels
 from sakshi.eval import metrics, selectors
 from sakshi.models.comparison import TASKS, _prediction
 
@@ -24,6 +25,14 @@ VARIANTS = {
     "B4 severity only": "b4_severity",
     "B4 disaster type only": "b4_disaster_type",
 }
+FORCED_DMD = (
+    "Severity, DMD, equal coverage",
+    "severity_dmd",
+    "severity",
+    labels.SEVERITY,
+    "y_severity",
+    "forced_argmax",
+)
 
 
 def _indexed(labels: np.ndarray, classes: list[str]) -> np.ndarray:
@@ -82,17 +91,19 @@ def effect(
         if not (aligned._merge == "both").all():
             raise ValueError(f"{variant_run} is missing {selector} rows")
         truth = aligned[gold_column].astype(str).to_numpy(dtype=object)
-        full_labels = _prediction(aligned, head, classes, "full", gold_gated=metric_variant == "gold_gated")
-        variant_labels = _prediction(aligned, head, classes, "variant", gold_gated=metric_variant == "gold_gated")
+        equal_coverage = metric_variant in {"gold_gated", "forced_argmax"}
+        full_labels = _prediction(aligned, head, classes, "full", gold_gated=equal_coverage)
+        variant_labels = _prediction(aligned, head, classes, "variant", gold_gated=equal_coverage)
         full_score = metrics.classification(truth, full_labels, classes)["macro_f1"]
         variant_score = metrics.classification(truth, variant_labels, classes)["macro_f1"]
         f_saved = full_metrics["heads"][selector]
         v_saved = variant_metrics["heads"][selector]
-        for saved, actual in ((f_saved, full_score), (v_saved, variant_score)):
-            if metric_variant is not None:
-                saved = saved[metric_variant]
-            if abs(saved["macro_f1"]["point"] - actual) > 1e-10:
-                raise ValueError(f"stored {selector} metric differs from predictions")
+        if metric_variant != "forced_argmax":
+            for saved, actual in ((f_saved, full_score), (v_saved, variant_score)):
+                if metric_variant is not None:
+                    saved = saved[metric_variant]
+                if abs(saved["macro_f1"]["point"] - actual) > 1e-10:
+                    raise ValueError(f"stored {selector} metric differs from predictions")
         arrays.append((full_labels, variant_labels))
         scores.append((full_score, variant_score))
     if any(len(left) != len(gold_frame) for left, _ in arrays):
@@ -137,6 +148,7 @@ def render() -> str:
         "Δ is variant minus full macro-F1. Its 95% interval resamples test posts together across all three seeds",
         "(1,000 paired draws); seed SD describes variation among the three trained runs.",
         "The interval captures test-post sampling, not uncertainty over all possible training seeds.",
+        "B4 fits one head at a time with no auxiliary heads; its humanitarian head is flat five-class.",
     ]
     for title, prefix in VARIANTS.items():
         runs = [frozen_run(prefix, seed) for seed in (0, 1, 2)]
@@ -154,6 +166,12 @@ def render() -> str:
             lines.append(
                 f"| {name} | {n:,} | {baseline:.3f} | {variant:.3f} | {delta:+.3f} [{low:+.3f}, {high:+.3f}] | {seed_sd:.3f} |"
             )
+        if prefix in {"a4_no_hierarchy", "b4_severity"}:
+            n, baseline, variant, delta, low, high, seed_sd = effect(manifest, full, runs, FORCED_DMD)
+            lines.append(
+                f"| Severity, DMD, equal coverage | {n:,} | {baseline:.3f} | {variant:.3f} | "
+                f"{delta:+.3f} [{low:+.3f}, {high:+.3f}] | {seed_sd:.3f} |"
+            )
         if prefix == "a4_no_hierarchy":
             contradictions = np.asarray([item[1]["contradiction_rate"] for item in runs], dtype=float)
             lines += [
@@ -161,14 +179,21 @@ def render() -> str:
                 "A4 removes the informative/humanitarian constraint and the severity gate.",
                 f"Its hierarchy contradiction rate is **{contradictions.mean():.3f} ± "
                 f"{contradictions.std(ddof=1):.3f}** across seeds (full model: 0).",
-                "The large DMD severity delta includes the change from gated to ungated coverage;",
-                "it is not an isolated gain in severity discrimination.",
+                "The ordinary DMD severity row includes the change from gated to ungated coverage.",
+                "The equal-coverage row forces the severity argmax for both models on all DMD posts.",
             ]
         if prefix == "a5_no_cib":
             lines += [
                 "",
                 "A5 has no disaster-type head. Its DMD severity score measures transfer to CIB images",
                 "after all CIB training data were removed.",
+            ]
+        if prefix == "b4_severity":
+            lines += [
+                "",
+                "The severity-only model has no informative or humanitarian head to gate its outputs.",
+                "The ordinary DMD row therefore also reflects coverage. The equal-coverage row",
+                "forces the severity argmax for both models on all DMD posts.",
             ]
     lines += [
         "",
