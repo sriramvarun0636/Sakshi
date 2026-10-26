@@ -115,13 +115,16 @@ for event, run_id in RUNS.items():
     print(event, exports[event])"""
         ),
     ]
-    notebook = nbformat.v4.new_notebook(cells=cells)
+    notebook = nbformat.v4.new_notebook(
+        cells=cells,
+        metadata={"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
+    )
     name = "sakshi-xai-packets-maria-mexico"
     notebook_path = output / f"{name}.ipynb"
     nbformat.write(notebook, notebook_path)
     metadata = {
         "id": f"varun0636/{name}",
-        "title": "SAKSHI Maria and Mexico same-model evidence packets",
+        "title": "SAKSHI XAI Packets Maria Mexico",
         "code_file": notebook_path.name,
         "language": "python",
         "kernel_type": "notebook",
