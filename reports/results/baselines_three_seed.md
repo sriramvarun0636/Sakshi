@@ -27,5 +27,5 @@ until paired, seed-aware intervals are computed.
 The original per-modality label evaluation is currently frozen only for seed 0 and is
 reported separately in [`baselines_seed0.md`](baselines_seed0.md). B3 late fusion is
 frozen only for seed 0; its remaining seeds must derive weights from their own
-calibrated development predictions. The seven-event B1/B2 LOEO matrix is underway and
-is not represented by these standard-split scores.
+calibrated development predictions. The complete seven-event B1/B2 LOEO matrix is
+reported in [`loeo_baselines.md`](loeo_baselines.md), separately from these standard-split scores.
