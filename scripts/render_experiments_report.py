@@ -154,6 +154,22 @@ def render() -> str:
             lines.append(
                 f"| {name} | {n:,} | {baseline:.3f} | {variant:.3f} | {delta:+.3f} [{low:+.3f}, {high:+.3f}] | {seed_sd:.3f} |"
             )
+        if prefix == "a4_no_hierarchy":
+            contradictions = np.asarray([item[1]["contradiction_rate"] for item in runs], dtype=float)
+            lines += [
+                "",
+                "A4 removes the informative/humanitarian constraint and the severity gate.",
+                f"Its hierarchy contradiction rate is **{contradictions.mean():.3f} ± "
+                f"{contradictions.std(ddof=1):.3f}** across seeds (full model: 0).",
+                "The large DMD severity delta includes the change from gated to ungated coverage;",
+                "it is not an isolated gain in severity discrimination.",
+            ]
+        if prefix == "a5_no_cib":
+            lines += [
+                "",
+                "A5 has no disaster-type head. Its DMD severity score measures transfer to CIB images",
+                "after all CIB training data were removed.",
+            ]
     lines += [
         "",
         "The experiments share fixed official selectors, but the many reported effects have no multiple-comparison correction.",
