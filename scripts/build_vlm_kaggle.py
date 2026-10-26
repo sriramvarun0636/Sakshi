@@ -194,7 +194,9 @@ print({'complete': sum(1 for _ in output.open()), 'output': str(output)})
 
 def build() -> Path:
     JOB.mkdir(parents=True, exist_ok=True)
-    notebook = nbformat.v4.new_notebook()
+    notebook = nbformat.v4.new_notebook(
+        metadata={"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}}
+    )
     notebook.cells = [
         nbformat.v4.new_markdown_cell("# SAKSHI B6 · zero-shot VLM\n\nPrivate official-test inference with the Appendix E.7 prompt. The 3B fallback fits a T4 without quantization. This notebook does not train or calibrate on test labels."),
         nbformat.v4.new_code_cell(SETUP),
