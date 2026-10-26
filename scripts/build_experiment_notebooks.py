@@ -14,7 +14,6 @@ JOBS = ROOT / "runs/transfer/kaggle_jobs"
 CODE_DATASET = "varun0636/sakshi-experiment-code-20261026"
 
 OVERLAY = '''
-import shutil
 import zipfile
 from pathlib import PurePosixPath
 
@@ -24,21 +23,26 @@ if len(code_manifests) != 1:
 code_root = code_manifests[0].parent
 code_inventory = json.loads(code_manifests[0].read_text())
 archive = code_root / 'source.zip'
-if archive.stat().st_size != code_inventory['archive_bytes'] or hashlib.sha256(archive.read_bytes()).hexdigest() != code_inventory['archive_sha256']:
-    raise RuntimeError('experiment source archive hash mismatch')
-with zipfile.ZipFile(archive) as stream:
-    if set(stream.namelist()) != {member['path'] for member in code_inventory['members']}:
-        raise ValueError('experiment source archive members differ from inventory')
-    for member in code_inventory['members']:
-        relative = PurePosixPath(member['path'])
-        if relative.parts[0] != 'source' or '..' in relative.parts:
-            raise ValueError(f'unsafe code member: {relative}')
-        content = stream.read(member['path'])
-        if len(content) != member['bytes'] or hashlib.sha256(content).hexdigest() != member['sha256']:
-            raise RuntimeError(f'experiment code hash mismatch: {relative}')
-        destination = SOURCE_ROOT.joinpath(*relative.parts[1:])
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
+if archive.is_file():
+    if archive.stat().st_size != code_inventory['archive_bytes'] or hashlib.sha256(archive.read_bytes()).hexdigest() != code_inventory['archive_sha256']:
+        raise RuntimeError('experiment source archive hash mismatch')
+    with zipfile.ZipFile(archive) as stream:
+        if set(stream.namelist()) != {member['path'] for member in code_inventory['members']}:
+            raise ValueError('experiment source archive members differ from inventory')
+        contents = {member['path']: stream.read(member['path']) for member in code_inventory['members']}
+else:
+    # Kaggle expands a root ZIP into a directory bearing the archive's stem.
+    contents = {member['path']: (code_root / 'source' / member['path']).read_bytes() for member in code_inventory['members']}
+for member in code_inventory['members']:
+    relative = PurePosixPath(member['path'])
+    if relative.parts[0] != 'source' or '..' in relative.parts:
+        raise ValueError(f'unsafe code member: {relative}')
+    content = contents[member['path']]
+    if len(content) != member['bytes'] or hashlib.sha256(content).hexdigest() != member['sha256']:
+        raise RuntimeError(f'experiment code hash mismatch: {relative}')
+    destination = SOURCE_ROOT.joinpath(*relative.parts[1:])
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(content)
 print({'experiment_code_commit': code_inventory['git_commit'], 'files': len(code_inventory['members'])})
 '''
 
