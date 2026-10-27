@@ -34,6 +34,10 @@ def build() -> Path:
         return item["event"], item["window"], item["model_id"]
     if [key(item) for item in frozen["selected"]] != [key(item) for item in captioned["selected"]]:
         raise ValueError("captioned study changed the 53-window selection")
+    if [item["aggregate_sha256"] for item in frozen["selected"]] != [
+        item["aggregate_sha256"] for item in captioned["selected"]
+    ]:
+        raise ValueError("captioned packets unexpectedly changed the frozen aggregate windows")
     print({"windows": len(captioned["selected"]), "plan": str(target)})
     return target
 
