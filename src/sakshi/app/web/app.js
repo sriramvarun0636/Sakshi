@@ -12,7 +12,7 @@ const state = {
   speed: 1,
   timer: null,
   classify: null,
-  explanation: null,
+  explanations: {},
   featuredCase: null,
   briefingSitrep: null,
   briefingStep: 0,
@@ -238,7 +238,7 @@ async function runBriefingCase() {
   try {
     state.briefingAnalysis = await post('/api/featured-analysis', {presentation:presentation.checked});
     state.classify = state.briefingAnalysis;
-    state.explanation = null;
+    state.explanations = {};
     const output = document.getElementById('briefing-model-output');
     if (output) output.innerHTML = briefingModelHtml(state.briefingAnalysis);
   } catch (error) {
@@ -333,7 +333,7 @@ async function analyzeFeaturedCase() {
     state.classify = await post("/api/featured-analysis", {
       presentation: presentation.checked,
     });
-    state.explanation = null;
+    state.explanations = {};
     const output = document.getElementById("classify-output");
     if (output) {
       output.innerHTML = classifyOutput(state.classify);
@@ -461,7 +461,11 @@ function classifyOutput(result) {
     origin +
     "</div>" +
     title("What moved the decision", "XAI / ON DEMAND") +
-    '<div class="notice xai-control"><div><span class="micro micro-orange">MODEL EXPLANATION</span><h3>Trace one decision to its inputs.</h3><p>Choose a task head, then reveal the word and image evidence available for that prediction.</p></div><div class="xai-control-actions"><label for="explain-head">DECISION TO EXPLAIN</label><select id="explain-head" class="select">' +
+    '<div class="notice xai-control"><div><span class="micro micro-orange">MODEL EXPLANATION</span>' +
+    (result.image
+      ? '<h3>Four questions. One image.</h3><p>Reveal two decisions to compare where each class looked. Maps are computed only when requested.</p>'
+      : '<h3>Trace the words.</h3><p>Choose a decision to reveal signed word attribution for this text-only post.</p>') +
+    '</div><div class="xai-control-actions"><label for="explain-head">DECISION TO EXPLAIN</label><select id="explain-head" class="select">' +
     result.heads
       .filter((h) => h.status === "predicted")
       .map(
@@ -491,10 +495,10 @@ function explanationOutput(result, headKey, classification) {
       ')" title="Signed attribution: ' + esc(Number(word.score).toFixed(3)) + '">' +
       esc(word.text) + '</span>';
   }).join("");
-  const header = '<div class="xai-result-head"><span>EXPLANATION / ' + esc(name) +
-    '</span><strong>' + (hasWords && hasImage ? "Words and image, in view." :
-      hasImage ? "Where the image mattered." : "Which words mattered.") +
-    '</strong><p>These maps explain this model prediction; they do not verify whether the post is true.</p></div>';
+  const header = '<div class="xai-result-head"><span>DECISION UNDER INSPECTION / ' + esc(name) +
+    '</span><strong>' + esc(head?.label || "No label returned") +
+    '</strong><div class="xai-verdict"><b>' + pct(head?.probability) +
+    '</b><small>CALIBRATED CONFIDENCE</small><p>Attributions relate to this predicted class. They do not verify the post.</p></div></div>';
   const wordPanel = '<div class="xai-words"><div class="xai-panel-label">INTEGRATED GRADIENTS / WORD ATTRIBUTION</div>' +
     '<div class="xai-word-flow">' + words + '</div><div class="xai-legend"><span><i></i> TOWARD THE LABEL</span>' +
     '<span><i></i> AWAY FROM THE LABEL</span><span>' + esc(result.steps || "—") + ' STEPS</span></div></div>';
@@ -504,7 +508,7 @@ function explanationOutput(result, headKey, classification) {
     '" alt="Grad-CAM heatmap over the analyzed image"><figcaption>02 / GRAD-CAM FOCUS</figcaption></figure>';
   const visualPanel = '<div class="xai-visual"><div class="xai-panel-label">GRAD-CAM / IMAGE FOCUS</div>' +
     '<div class="xai-image-pair">' + original + overlay + '</div>' +
-    '<p>Brighter regions contributed more to this decision. The map covers the model’s center crop.</p></div>';
+    '<p>Warmer areas carry more Grad-CAM weight within this map. It covers the model’s center crop.</p></div>';
   if (hasWords && hasImage)
     return '<section class="xai-result">' + header + '<div class="xai-both">' + wordPanel +
       visualPanel + '</div></section>';
@@ -514,6 +518,20 @@ function explanationOutput(result, headKey, classification) {
   if (hasWords)
     return '<section class="xai-result">' + header + wordPanel + '</section>';
   return '<section class="xai-result">' + header + '<p class="xai-scope">No attribution is available for this decision.</p></section>';
+}
+
+function explanationComparison(explanations, selectedHead, classification) {
+  const revealed = classification.heads.filter((head) => explanations[head.key]?.heatmap);
+  if (revealed.length < 2) return "";
+  return '<section class="xai-comparison"><div class="xai-comparison-head"><div><span class="micro micro-orange">SAME POST / SEPARATE CLASS TARGETS</span>' +
+    '<h3>Compare the focus maps.</h3></div><p>Each map is normalized separately. Compare where it lights up, not color intensity across cards.</p></div>' +
+    '<div class="xai-comparison-grid">' + revealed.map((head) =>
+      '<button type="button" class="xai-comparison-card' + (head.key === selectedHead ? ' active' : '') +
+      '" data-xai-head="' + esc(head.key) + '" aria-label="View ' + esc(head.name) + ' explanation">' +
+      '<span class="xai-comparison-meta"><span>' + esc(head.name) + '</span><b>' + pct(head.probability) + '</b></span>' +
+      '<strong>' + esc(head.label || "No label returned") + '</strong><img src="' +
+      esc(explanations[head.key].heatmap) + '" alt="Grad-CAM for ' + esc(head.name) + '">' +
+      '<small>VIEW THIS DECISION ↗</small></button>').join("") + '</div></section>';
 }
 
 function bindClassify() {
@@ -561,7 +579,7 @@ function bindClassify() {
         time: document.getElementById("context-time").value,
         presentation: presentation.checked,
       });
-      state.explanation = null;
+      state.explanations = {};
       document.getElementById("classify-output").innerHTML = classifyOutput(
         state.classify,
       );
@@ -587,33 +605,48 @@ function bindClassify() {
 function bindExplanation() {
   const button = document.getElementById("explain-button");
   if (!button) return;
-  document.getElementById("explain-head").addEventListener("change", () => {
-    document.getElementById("explain-output").innerHTML = "";
+  const selector = document.getElementById("explain-head");
+  const output = document.getElementById("explain-output");
+  const render = () => {
+    const head = selector.value;
+    output.innerHTML = explanationComparison(state.explanations, head, state.classify) + (state.explanations[head]
+      ? explanationOutput(state.explanations[head], head, state.classify)
+      : "");
+    button.textContent = state.explanations[head] ? "EVIDENCE REVEALED ✓" : "REVEAL EVIDENCE →";
+  };
+  selector.addEventListener("change", render);
+  output.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-xai-head]");
+    if (!card) return;
+    selector.value = card.dataset.xaiHead;
+    render();
   });
   button.addEventListener("click", async () => {
+    const head = selector.value;
+    if (state.explanations[head]) {
+      render();
+      return;
+    }
     button.disabled = true;
     button.textContent = "TRACING MODEL EVIDENCE…";
     try {
-      const head = document.getElementById("explain-head").value;
       const token = state.classify.token;
-      state.explanation = await post("/api/explain", {
+      const explanation = await post("/api/explain", {
         token,
         head,
         presentation: presentation.checked,
       });
-      if (state.classify?.token !== token || document.getElementById("explain-head")?.value !== head) return;
-      document.getElementById("explain-output").innerHTML = explanationOutput(
-        state.explanation,
-        head,
-        state.classify,
-      );
+      if (state.classify?.token !== token) return;
+      state.explanations[head] = explanation;
+      render();
     } catch (error) {
       notify(error.message);
     } finally {
       button.disabled = false;
-      button.textContent = "REVEAL EVIDENCE →";
+      button.textContent = state.explanations[selector.value] ? "EVIDENCE REVEALED ✓" : "REVEAL EVIDENCE →";
     }
   });
+  render();
 }
 
 function replayHtml(data) {
@@ -1361,7 +1394,7 @@ document.addEventListener('keydown', (event) => {
 });
 presentation.addEventListener("change", () => {
   state.classify = null;
-  state.explanation = null;
+  state.explanations = {};
   state.briefingAnalysis = null;
   state.featuredCase = null;
   state.briefingSitrep = null;
