@@ -78,11 +78,14 @@ The artifact folder includes the row selection, checkpoint/config/calibration ha
 source/runtime hashes, predictions and a completion marker. Its prediction table and
 packets can be checked with WP4's `load_packets` and `validate_selected`.
 
-Existing §9.4 captions are read from `data/processed/captions.parquet` and marked
-`model_generated: true`. Missing captions stay null. The Qwen caption generation job
-remains pending and is not replaced with inferred descriptions. Region captions remain
-optional. Data, words, packets, heatmaps and source-image overlays stay under ignored
-`data/` or `runs/`; only tables and non-image audit curves are suitable for Git.
+The pinned Qwen2.5-VL-7B job generated captions for all 1,449 selected research images.
+Its private cache is `data/processed/captions.parquet`; the [caption report](../reports/generation/captions.md)
+records hashes and length compliance without publishing post text. Captioned packets
+under `data/processed/packets_captioned/` derive from the frozen explanation packets:
+only `image_caption` changes, and every derived packet passes schema and privacy checks.
+The original packets remain available for the no-caption comparison. Captions are
+marked `model_generated: true`; region captions remain optional. Data, words, packets,
+heatmaps and source-image overlays stay under ignored `data/` or `runs/`.
 
 ## Audits and research freeze
 

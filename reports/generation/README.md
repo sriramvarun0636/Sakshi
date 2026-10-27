@@ -1,31 +1,36 @@
-# Three-event research sitreps · HF batch run
+# Three-event research sitreps · HF batch runs
 
-The [computed verification table](summary_hf.md) covers all **53** frozen LOEO
-windows: Harvey 18, Maria 26 and Mexico 9. The exported sitreps and the input ZIPs
-were checked against the frozen event, window, packet, aggregate and evaluation-plan
-hashes before restoration. The private per-window JSON and raw LLM cache remain under
-ignored `runs/` paths.
+Both private Kaggle runs cover the same **53 frozen LOEO windows**: Harvey 18,
+Maria 26 and Mexico 9. The sitreps, packet files, aggregates and evaluation plan
+were hash checked before restoration. Private per-window JSON and raw LLM cache
+remain outside Git.
 
-| Measure | Overall |
-|---|---:|
-| Round-0 generated sentences | 343 |
-| Initial verifier acceptance | 0.860 |
-| Final verifier acceptance | 0.910 |
-| Selected-post evidence coverage | 0.310 |
-| Generation failures | 13 of 53 windows |
+| Measure | No caption | Qwen caption |
+|---|---:|---:|
+| Round-0 generated sentences | 343 | 371 |
+| Initial verifier acceptance | 0.860 | 0.852 |
+| Final verifier acceptance | 0.910 | 0.895 |
+| Selected-post evidence coverage | 0.310 | 0.313 |
+| Generation failures | 13 | 11 |
+| System-only windows | 11 | 8 |
 
-Eleven failed windows contain only system lines; two retain verified claims from
-round 0 but record a failed rewrite. These failures are part of the evaluation and
-are not silently dropped from window counts or average latency. The verifier's
-acceptance rate is a **model check against cited posts**, not an estimate of factual
-correctness or human-judged gate precision. The 50-sentence Harvey calibration sheet
-has been generated locally with
-blank reviewer labels. Independent reviewers and an adjudicator are unavailable, so
-the human calibration, Cohen's κ and manual precision/recall claims remain open.
+See the [no-caption summary](summary_hf.md), [captioned summary](summary_hf_captioned.md),
+[matched-window comparison](caption_comparison.md),
+[caption coverage](captions.md) and [fixed-sentence gate ablations](ablations_captioned.md).
+Captions lowered the overall automatic final rate despite improving Harvey. Mexico
+fell from 79 to 33 round-0 sentences and had five invalid-JSON generation failures
+in the captioned variant. These failures remain in the reported denominators.
 
-Generation used private Kaggle T4 jobs, Qwen2.5-7B-Instruct revision
+The 1,449 captions used Qwen2.5-VL-7B-Instruct revision
+`cc594898137f460bfe9f0759e9844b3ce807cfb5`. Both sitrep runs used private T4
+jobs, Qwen2.5-7B-Instruct revision
 `a09a35458c702b33eeacc393d103063234e8bc28` in 4-bit, and DeBERTa-v3-large
 MNLI/FEVER/ANLI/Ling/WANLI revision `b3546ea6b0346eb6f8d5d68b13c7dc6d0376b3d7`.
-The NLI thresholds, entailment **0.5** and contradiction **0.3**, are the design
-spec's **uncalibrated defaults** because Harvey human labels do not exist. The
-frozen generation source was Git commit `aaed31631b949923a84c45d56f58680dcd33f060`.
+The generation source commits were `aaed31631b949923a84c45d56f58680dcd33f060`
+without captions and `ff9e8c057dbd319a070156045dfcf986db6dc6f7` with captions.
+
+The entailment and contradiction thresholds, **0.5** and **0.3**, remain the design
+spec's uncalibrated defaults. Automatic verifier acceptance is a model check against
+cited posts, not human-rated factual accuracy. The 50-sentence Harvey calibration
+sheet has blank reviewer labels. Two independent reviewers and an adjudicator are
+unavailable, so human calibration, Cohen's κ and manual precision/recall remain open.

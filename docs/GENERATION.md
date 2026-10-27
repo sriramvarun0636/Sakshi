@@ -26,13 +26,19 @@ The Harvey, Maria and Mexico LOEO classifiers and their held-out evaluations are
 Their real evidence packets are complete and validated: 504, 666 and 279 posts,
 respectively. All three WP4 research aggregates and the balanced 53-window evaluation
 plan are frozen. A laptop Ollama run produced five Harvey windows before being stopped
-for heat. Separate, private Kaggle GPU jobs now generate the research sitreps using
-pinned Qwen2.5-7B-Instruct and DeBERTa NLI snapshots; their outputs are under
-`runs/sitreps_hf/`. All three jobs completed and their 53 selected windows were
-restored after hash checks. The computed verifier summary is
-`reports/generation/summary_hf.md`; 13 windows record a generation failure, including
-11 that display system lines only. The 50-sentence Harvey calibration sheet is ready
-locally with blank labels.
+for heat. Private Kaggle GPU jobs completed both the original no-caption run and the
+captioned run on the same 53 windows, using pinned Qwen2.5-7B-Instruct and DeBERTa NLI
+snapshots. Their private outputs are under `runs/sitreps_hf/` and
+`runs/sitreps_hf_captioned/`. All exports passed packet, aggregate, plan and completion
+hash checks. The [no-caption summary](../reports/generation/summary_hf.md) records
+13 generation failures, including 11 system-only windows. The
+[captioned summary](../reports/generation/summary_hf_captioned.md) records 11 failures,
+including eight system-only windows. Its final automatic verifier rate is 0.895,
+versus 0.910 without captions; the
+[matched-window comparison](../reports/generation/caption_comparison.md) retains the
+Mexico degradation. The [fixed-sentence ablations](../reports/generation/ablations_captioned.md)
+rescore G3 without captions and compare the saved gates on 371 round-0 sentences.
+The 50-sentence Harvey calibration sheet is ready locally with blank labels.
 The fake-backend integration test verifies file and logic flow; it is not a
 model-quality result. Two independent reviewers and an adjudicator are unavailable,
 so human calibration and evaluation scores remain pending and must not be replaced
@@ -63,11 +69,15 @@ sakshi-explain packets --run runs/classifier/full-s0-loeo_hurricane_harvey-20261
 
 Packet generation writes one atomic post checkpoint at a time and can resume with the
 same command after an interruption. The plan freezes source hashes and exact sample IDs.
-Caption input is a JSON array of
-sample IDs. `sakshi-generate captions --ids selected_ids.json` appends only missing
-captions to `data/processed/captions.parquet`; packets must be built after captions exist
-to include them. Unavailable captions remain null, and the verifier uses only packet text
-and caption fields.
+Caption input is a JSON array of sample IDs.
+`sakshi-generate captions --ids selected_ids.json` appends only missing captions to
+`data/processed/captions.parquet`.
+For the frozen research study, three private Qwen2.5-VL-7B jobs generated all 1,449
+captions; `scripts/restore_caption_kaggle.py` verified the shards and published the
+private cache. `scripts/attach_captioned_packets.py` derived captioned packets from
+the frozen explanations without rerunning the classifier. The original packets remain
+unchanged, and the captioned WP4 windows and 53-window plan have identical hashes.
+The verifier uses only packet text and caption fields.
 
 Run WP4 in LOEO mode for each event with `--run`, `--predictions` and `--packets`
 pointing to the same classifier and planned packet file. Its completed aggregate directory is
@@ -106,7 +116,7 @@ sakshi-generate audit-score --phase calibration
 ```
 
 The chosen `tau_entail` is in `reports/generation/audit_calibration.json`. With no
-reviewers available, the ongoing Kaggle runs use the design spec's explicit uncalibrated
+reviewers available, both completed Kaggle runs use the design spec's explicit uncalibrated
 defaults, `tau_entail: 0.5` and `tau_contra: 0.3`. They must be labelled as
 uncalibrated outputs, and the human-study acceptance claim remains open.
 
