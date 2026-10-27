@@ -4,9 +4,10 @@ WP3 uses the trained classifier in `runs/classifier/full-s0-20261024-062724/`.
 The code supports all four main heads, gated/missing modalities, packet production,
 faithfulness and cascading randomisation. The 1,449 selected Harvey, Maria and Mexico
 research packets are complete and validated. The formal official-test faithfulness
-(500/head) and sanity (100/head) GPU jobs are running on Kaggle; no formal audit result
-is claimed until all four heads have been restored and merged. Reports with `_dev` in
-their names are small integration checks.
+(500/head) and sanity (100/head) GPU jobs completed on Kaggle; all eight shards were
+hash-checked, restored and merged into `reports/results/faithfulness.md`,
+`reports/results/sanity.md` and `reports/figures/faithfulness_curves.png`. Reports with
+`_dev` in their names are small integration checks.
 
 ## Install and run a small check
 
