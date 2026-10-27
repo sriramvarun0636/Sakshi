@@ -194,3 +194,33 @@ def test_fieldroom_review_uses_opaque_token_and_sanitized_text(tmp_path, monkeyp
     assert web_server._save_review(view["items"][0]["token"], "confirm") == {"saved": True}
     entry = json.loads((tmp_path / "runs" / "review" / "decisions.jsonl").read_text())
     assert entry["sample_id"] == "private:sample" and entry["decision"] == "confirm"
+
+
+def test_review_preview_prefers_context_and_never_renders_nan(tmp_path, monkeypatch):
+    from sakshi.app import web_server
+
+    monkeypatch.setattr(web_server, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        web_server,
+        "_review_items",
+        lambda: (
+            [
+                {"id": "cib:image", "kind": "abstained", "reason": "low confidence"},
+                {"id": "crisismmd:post", "kind": "abstained", "reason": "low confidence"},
+            ],
+            "trained classifier",
+        ),
+    )
+    monkeypatch.setattr(
+        web_server,
+        "_manifest",
+        lambda: {
+            "cib:image": {"text": float("nan"), "event": float("nan")},
+            "crisismmd:post": {"text": "Residents need shelter", "event": "hurricane_maria"},
+        },
+    )
+    monkeypatch.setattr(web_server, "_thumbnail", lambda *_: None)
+
+    view = web_server._review_view("pending", True)
+    assert [card["text"] for card in view["items"]] == ["Residents need shelter", "Image-only post"]
+    assert view["items"][1]["event"] == "Not available"

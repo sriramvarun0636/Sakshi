@@ -306,15 +306,25 @@ def _review_view(lens: str, presentation: bool) -> dict:
         shown = items
     else:
         shown = pending
+    manifest = _manifest()
+    shown = sorted(
+        shown,
+        key=lambda item: (
+            item["kind"] != "abstained",
+            _known(manifest.get(item["id"], {}).get("text")) is None,
+            _known(manifest.get(item["id"], {}).get("event")) is None,
+            item["id"],
+        ),
+    )
     cards = []
     for item in shown[:12]:
-        row = _manifest().get(item["id"], {})
+        row = manifest.get(item["id"], {})
         cards.append(
             {
                 "token": _token(item["id"]),
                 "kind": item["kind"].replace("_", " "),
                 "reason": display_text(item["reason"]),
-                "text": display_text(row.get("text")) or "Image-only post",
+                "text": display_text(_known(row.get("text"))) or "Image-only post",
                 "event": _human(row.get("event")),
                 "image": _thumbnail(item["id"], presentation),
                 "decision": decisions.get(item["id"], {}).get("decision"),
