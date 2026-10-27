@@ -1,6 +1,6 @@
 /* SAKSHI fieldroom: deliberately small, dependency-free presentation client. */
 const state = {
-  page: "classify",
+  page: "briefing",
   bootstrap: null,
   event: "hurricane_maria",
   window: 0,
@@ -14,6 +14,9 @@ const state = {
   classify: null,
   explanation: null,
   featuredCase: null,
+  briefingSitrep: null,
+  briefingStep: 0,
+  briefingAnalysis: null,
 };
 const view = document.getElementById("view");
 const presentation = document.getElementById("presentation");
@@ -38,6 +41,11 @@ function displayName(value) {
   return String(value || "")
     .replaceAll("_", " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function reviewReason(value) {
+  return String(value || "Review requested")
+    .replace(/^low_confidence:/i, "Low confidence · ")
+    .replace(/_/g, " ");
 }
 function title(text, note) {
   return (
@@ -118,29 +126,160 @@ function params(data) {
   return p.toString();
 }
 function changePage(page) {
-  if (!["classify", "replay", "sitrep", "review", "results"].includes(page))
-    page = "classify";
+  if (!["briefing", "classify", "replay", "sitrep", "review", "results"].includes(page))
+    page = "briefing";
   state.page = page;
   state.playing = false;
   clearInterval(state.timer);
   document
     .querySelectorAll(".nav-item")
     .forEach((b) => b.classList.toggle("active", b.dataset.page === page));
+  document.getElementById("briefing-link").classList.toggle("active", page === "briefing");
   history.replaceState(null, "", "#" + page);
   window.scrollTo(0, 0);
   render();
 }
 
+function briefingModelHtml(result) {
+  if (!result)
+    return '<div class="briefing-model-await"><span>LIVE INFERENCE / LOCAL CPU</span><strong>Four decisions await the case.</strong><p>Run the pinned Maria post through the trained model. Its decisions and any abstention appear here.</p></div>';
+  const decisions = result.heads.map((head, i) => {
+    const label = head.status === "predicted" ? head.label || "Undecided" :
+      head.status === "gated" ? "Gated" : "Not applicable";
+    return '<div class="briefing-model-tile"><small>0' + (i + 1) + ' / ' + esc(head.name) +
+      '</small><strong>' + esc(label) + '</strong><span>' +
+      (head.status === "predicted" ? pct(head.probability) + " CALIBRATED" : "NO SCORE") +
+      '</span></div>';
+  }).join("");
+  return '<div class="briefing-model-status ' + (result.abstain ? "is-abstained" : "") +
+    '"><span>' + (result.abstain ? "ABSTAINED / HUMAN REVIEW" : "CLASSIFICATION RETURNED") +
+    '</span><strong>' + esc(result.abstain ?
+      reviewReason(result.abstain_reason) :
+      result.model) +
+    '</strong></div><div class="briefing-model-tiles">' + decisions + '</div>' +
+    (result.origin ? '<div class="briefing-origin"><span>IMAGE ORIGIN / ' +
+      esc(displayName(result.origin.status)) + '</span><strong>' +
+      esc(result.origin.event ? "Earlier indexed in " + result.origin.event : "No earlier indexed match") +
+      '</strong></div>' : "");
+}
+
+function briefingHtml(caseData, sitrep) {
+  const hasCase = Boolean(caseData?.available);
+  const sentences = sitrep?.available ? sitrep.sentences : [];
+  const accepted = sentences.find((s) => s.accepted && s.id === "S3") || sentences.find((s) => s.accepted);
+  const rejected = sentences.find((s) => !s.accepted && s.failed_gates?.some((g) => g.name === "number")) ||
+    sentences.find((s) => !s.accepted);
+  const originalCount = sentences.filter((s) => Number(s.round) === 0).length;
+  const acceptedCount = sentences.filter((s) => s.accepted).length;
+  const failedRewrites = sentences.filter((s) => !s.accepted && Number(s.round) > 0).length;
+  const metrics = state.bootstrap.headline_metrics || [];
+  const metricBars = metrics.map((metric, i) => {
+    const value = Number(metric.value);
+    return '<div class="briefing-score-row ' + (value < 0.5 ? "weak" : "") +
+      '"><div><span>0' + (i + 1) + ' / ' + esc(metric.label) + '</span><strong>' +
+      esc(value.toFixed(3)) + '</strong></div><i><b style="width:' +
+      Math.max(0, Math.min(100, value * 100)).toFixed(1) + '%"></b></i></div>';
+  }).join("");
+  const photos = hasCase ? '<div class="briefing-photo-pair"><figure><img src="' +
+    esc(caseData.current_image) + '" alt="Image indexed with a Hurricane Maria post"><figcaption><b>HURRICANE MARIA</b><span>' +
+    esc(caseData.current_date) + '</span></figcaption></figure><figure><img src="' +
+    esc(caseData.origin_image) + '" alt="Earlier indexed Hurricane Irma image"><figcaption><b>HURRICANE IRMA</b><span>' +
+    esc(caseData.origin_date) + '</span></figcaption></figure></div>' :
+    '<div class="briefing-photo-unavailable">The pinned image pair is unavailable on this machine.</div>';
+  const sceneNav = '<nav class="briefing-chapters" aria-label="Briefing scenes"><span>FIELD BRIEFING / 04 SCENES</span>' +
+    ['THE IMAGE', 'THE MODEL', 'THE CLAIM', 'THE RECORD'].map((label, i) =>
+      '<button type="button" data-briefing-step="' + i + '" class="' +
+      (state.briefingStep === i ? 'active' : '') + '">0' + (i + 1) + ' ' + label + '</button>').join('') +
+    '<span>← → TO NAVIGATE</span></nav>';
+  return '<div class="briefing">' + sceneNav +
+    '<section class="briefing-scene briefing-cover" id="briefing-scene-0"><div class="briefing-cover-copy">' +
+    '<div class="briefing-eyebrow"><span>CASE FILE / 01</span><span>SYSTEM FLAG · REVIEW PENDING</span></div>' +
+    '<div><h1>One image.<br><em>Two events.</em></h1><p>The same flood photograph appears in a Maria post and an earlier indexed Irma record. The system flags reuse; a reviewer decides what the match means.</p></div>' +
+    '<div class="briefing-cover-foot"><div><strong>07</strong><span>DAYS BETWEEN<br>INDEXED APPEARANCES</span></div><button type="button" data-briefing-step="1">FOLLOW THE EVIDENCE <b>↓</b></button></div></div>' +
+    '<div class="briefing-cover-visual"><div class="briefing-visual-top"><span>FROZEN REPLAY / FACE-BLURRED</span><span>PHASH DISTANCE ' +
+    (hasCase ? esc(caseData.phash_distance) : '—') + ' / 64</span></div>' + photos +
+    '<div class="briefing-visual-bottom">EARLIER INDEXED APPEARANCE ≠ VERIFIED ORIGIN</div></div></section>' +
+    '<section class="briefing-scene briefing-model" id="briefing-scene-1"><div class="briefing-section-head"><span>02 / LIVE MODEL</span><span>FOUR TASK HEADS · HUMAN REVIEW</span></div>' +
+    '<div class="briefing-model-layout"><div class="briefing-model-copy"><h2>What does<br>the model <em>know?</em></h2><p>A classifier can help triage a post while remaining uncertain. Run this exact case through the local model and inspect every head.</p>' +
+    '<button type="button" id="briefing-run" class="briefing-run" ' + (hasCase ? '' : 'disabled') + '>RUN THIS CASE LIVE <span>↗</span></button>' +
+    '<small>THE FIRST RUN LOADS CACHED MODEL WEIGHTS.</small></div><div id="briefing-model-output">' +
+    briefingModelHtml(state.briefingAnalysis) + '</div></div><button class="briefing-next" type="button" data-briefing-step="2">NEXT / THE CLAIM <span>↓</span></button></section>' +
+    '<section class="briefing-scene briefing-claim" id="briefing-scene-2"><div class="briefing-section-head"><span>03 / VERIFIED GENERATION</span><span>HURRICANE MARIA · WINDOW 03</span></div>' +
+    '<div class="briefing-claim-top"><div><h2>A claim must<br><em>earn its place.</em></h2><p>Every sentence needs a citation. Failed claims remain visible, along with the gate that stopped them.</p></div>' +
+    '<div class="briefing-verdict"><span>AUTOMATED VERIFIER · NOT HUMAN RATED</span><strong>' +
+    (sitrep?.available ? pct(sitrep.rates.final) : '—') + '</strong><small>FINAL ACCEPTANCE OF ORIGINAL CLAIMS</small><div><b>' +
+    originalCount + ' ORIGINAL</b><b>' + acceptedCount + ' CLEARED</b><b>' + failedRewrites + ' FAILED REWRITES</b></div></div></div>' +
+    '<div class="briefing-claim-pair"><article><span>CLAIM CLEARED / ' + esc(accepted?.id || '—') +
+    '</span><p>' + esc(accepted?.text || 'No accepted claim in this window.') + '</p><small>CITED POST / ' +
+    esc((accepted?.citations || []).join(', ') || 'NONE') + '</small></article><article class="stopped"><span>CLAIM STOPPED / ' +
+    esc(rejected?.id || '—') + '</span><p>' + esc(rejected?.text || 'No rejected claim in this window.') +
+    '</p><small>' + esc((rejected?.failed_gates || []).map((g) => g.name.toUpperCase() + ' GATE · ' + g.detail).join(' / ') || 'VERIFICATION FAILED') +
+    '</small></article></div><button class="briefing-next" type="button" data-briefing-step="3">NEXT / THE RECORD <span>↓</span></button></section>' +
+    '<section class="briefing-scene briefing-record" id="briefing-scene-3"><div class="briefing-section-head"><span>04 / FROZEN EVALUATION</span><span>OFFICIAL TEST · THREE SEEDS</span></div>' +
+    '<div class="briefing-record-layout"><div><h2>The weak head<br>stays <em>visible.</em></h2><p>Mean macro-F1 across three frozen standard seeds. Each task has its own official test selector. Severity remains the hardest head.</p>' +
+    '<a href="#results" class="briefing-record-link">OPEN THE FULL RESEARCH RECORD <span>↗</span></a></div><div class="briefing-scores">' + metricBars +
+    '<small>0.0 <span>MEAN MACRO-F1 / NOT A HUMAN STUDY</span> 1.0</small></div></div>' +
+    '<div class="briefing-exit"><span>THE EVIDENCE IS OPEN TO INSPECTION.</span><div><a href="#classify">INVESTIGATE ↗</a><a href="#replay">EVENT REPLAY ↗</a><a href="#sitrep">SITREP ↗</a><a href="#review">REVIEW ↗</a></div></div></section></div>';
+}
+
+function goBriefingStep(value) {
+  const step = Math.max(0, Math.min(3, Number(value)));
+  state.briefingStep = step;
+  document.querySelectorAll('.briefing-chapters button').forEach((button) =>
+    button.classList.toggle('active', Number(button.dataset.briefingStep) === step));
+  document.getElementById('briefing-scene-' + step)?.scrollIntoView({behavior:'instant',block:'start'});
+}
+
+async function runBriefingCase() {
+  const button = document.getElementById('briefing-run');
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = 'RUNNING LOCAL MODEL…';
+  try {
+    state.briefingAnalysis = await post('/api/featured-analysis', {presentation:presentation.checked});
+    state.classify = state.briefingAnalysis;
+    state.explanation = null;
+    const output = document.getElementById('briefing-model-output');
+    if (output) output.innerHTML = briefingModelHtml(state.briefingAnalysis);
+  } catch (error) {
+    notify(error.message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = 'RUN THIS CASE LIVE <span>↗</span>';
+  }
+}
+
+async function renderBriefing() {
+  const version = ++requestVersion;
+  loading('Opening the field briefing');
+  try {
+    const [caseData, sitrep] = await Promise.all([
+      state.featuredCase || api('/api/featured-case'),
+      state.briefingSitrep || api('/api/sitrep?' + params({event:'hurricane_maria',window:2})),
+    ]);
+    if (version !== requestVersion) return;
+    state.featuredCase = caseData;
+    state.briefingSitrep = sitrep;
+    view.innerHTML = briefingHtml(caseData, sitrep);
+    document.querySelectorAll('[data-briefing-step]').forEach((button) =>
+      button.addEventListener('click', () => goBriefingStep(button.dataset.briefingStep)));
+    document.getElementById('briefing-run')?.addEventListener('click',runBriefingCase);
+    if (state.briefingStep) goBriefingStep(state.briefingStep);
+  } catch (error) {
+    view.innerHTML = notice('BRIEFING ERROR','Could not load the briefing',error.message,'');
+  }
+}
+
 function radarArt() {
   return (
     '<svg viewBox="0 0 600 510" fill="none" preserveAspectRatio="xMidYMid slice" aria-hidden="true">' +
-    '<path d="M-20 427C69 410 118 363 168 332S301 308 331 237 379 136 480 130 550 86 620 62" stroke="#A4CCB6" stroke-width="2" opacity=".75"/>' +
-    '<path d="M-30 455C71 421 103 384 179 379S291 347 340 278 410 239 504 189 575 144 630 140" stroke="#EF613D" stroke-width="3"/>' +
-    '<path d="M-20 379C53 362 127 300 190 296S305 287 341 199 391 104 493 100 551 54 620 26" stroke="#E9E8DF" opacity=".43"/>' +
-    '<circle cx="340" cy="278" r="8" fill="#EF613D"/><circle cx="340" cy="278" r="23" stroke="#EF613D" opacity=".6"/>' +
-    '<circle cx="504" cy="189" r="5" fill="#E9E8DF"/><circle cx="179" cy="379" r="5" fill="#E9E8DF"/>' +
-    '<path d="M40 48h115M40 60h72M414 449h147M458 461h103" stroke="#B7D5BB" opacity=".7"/>' +
-    '<text x="41" y="85" fill="#B7D5BB" font-size="10" letter-spacing="4">SIGNAL DETECTED</text><text x="420" y="435" fill="#B7D5BB" font-size="10" letter-spacing="4">MODEL / HUMAN</text></svg>' +
+    '<path d="M-20 427C69 410 118 363 168 332S301 308 331 237 379 136 480 130 550 86 620 62" stroke="#A8C8FF" stroke-width="2" opacity=".75"/>' +
+    '<path d="M-30 455C71 421 103 384 179 379S291 347 340 278 410 239 504 189 575 144 630 140" stroke="#4368FF" stroke-width="3"/>' +
+    '<path d="M-20 379C53 362 127 300 190 296S305 287 341 199 391 104 493 100 551 54 620 26" stroke="#EEF3FB" opacity=".43"/>' +
+    '<circle cx="340" cy="278" r="8" fill="#4368FF"/><circle cx="340" cy="278" r="23" stroke="#4368FF" opacity=".6"/>' +
+    '<circle cx="504" cy="189" r="5" fill="#EEF3FB"/><circle cx="179" cy="379" r="5" fill="#EEF3FB"/>' +
+    '<path d="M40 48h115M40 60h72M414 449h147M458 461h103" stroke="#A8C8FF" opacity=".7"/>' +
+    '<text x="41" y="85" fill="#A8C8FF" font-size="10" letter-spacing="4">SIGNAL DETECTED</text><text x="420" y="435" fill="#A8C8FF" font-size="10" letter-spacing="4">MODEL / HUMAN</text></svg>' +
     '<span class="visual-cross"></span><span class="visual-caption">FIG. 01 / TRACE THE EVIDENCE</span>'
   );
 }
@@ -298,7 +437,7 @@ function classifyOutput(result) {
     '<span class="corner">INPUT / 01</span></div><div><div style="margin-bottom:13px">' +
     pill(
       result.abstain
-        ? "ABSTAINED · " + (result.abstain_reason || "REVIEW")
+        ? "ABSTAINED · " + reviewReason(result.abstain_reason)
         : "CLASSIFICATION RETURNED",
       result.abstain ? "orange" : "dark",
     ) +
@@ -344,7 +483,7 @@ function explanationOutput(result) {
       ? result.words
           .map(
             (w) =>
-              '<span class="word-chip" style="background:rgba(239,97,61,' +
+              '<span class="word-chip" style="background:rgba(67,104,255,' +
               ((Math.max(0, w.score) / max) * 0.38).toFixed(3) +
               ')">' +
               esc(w.text) +
@@ -577,7 +716,7 @@ function replayHtml(data) {
     (state.speed === 2 ? "active" : "") +
     '">2×</button><button data-speed="3" class="' +
     (state.speed === 3 ? "active" : "") +
-    '">3×</button></div><span class="micro" style="color:#b6c6bb">' +
+    '">3×</button></div><span class="micro" style="color:#b7d4ff">' +
     esc(data.start) +
     " → " +
     esc(data.end) +
@@ -893,7 +1032,7 @@ function reviewHtml(data) {
         "</small><p>" +
         esc(item.text) +
         "</p><small>REASON / " +
-        esc(item.reason) +
+        esc(reviewReason(item.reason)) +
         '</small></div><div class="review-actions">' +
         (item.decision
           ? pill(item.decision, "dark")
@@ -1170,7 +1309,8 @@ async function renderResults() {
 
 function render() {
   requestVersion++;
-  if (state.page === "classify") {
+  if (state.page === "briefing") renderBriefing();
+  else if (state.page === "classify") {
     view.innerHTML = classifyShell();
     bindClassify();
     renderFeaturedCase();
@@ -1184,9 +1324,26 @@ document
   .forEach((button) =>
     button.addEventListener("click", () => changePage(button.dataset.page)),
   );
+document.getElementById('briefing-link').addEventListener('click', () => changePage('briefing'));
+document.addEventListener('keydown', (event) => {
+  if (state.page !== 'briefing' || event.altKey || event.ctrlKey || event.metaKey ||
+      ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+  if (event.key === 'ArrowRight' || event.key === 'PageDown') {
+    event.preventDefault();
+    goBriefingStep(state.briefingStep + 1);
+  } else if (event.key === 'ArrowLeft' || event.key === 'PageUp') {
+    event.preventDefault();
+    goBriefingStep(state.briefingStep - 1);
+  } else if (event.key === 'Escape') {
+    changePage('classify');
+  }
+});
 presentation.addEventListener("change", () => {
   state.classify = null;
   state.explanation = null;
+  state.briefingAnalysis = null;
+  state.featuredCase = null;
+  state.briefingSitrep = null;
   notify(
     presentation.checked
       ? "Safe view enabled. Re-analyze a post to refresh its images."
@@ -1203,7 +1360,7 @@ window.addEventListener("hashchange", () => changePage(location.hash.slice(1)));
       state.bootstrap.events.find((e) => e.id === "hurricane_maria")?.id ||
       state.bootstrap.events[0]?.id ||
       "hurricane_maria";
-    changePage(location.hash.slice(1) || "classify");
+    changePage(location.hash.slice(1) || "briefing");
   } catch (error) {
     view.innerHTML = notice(
       "STARTUP ERROR",

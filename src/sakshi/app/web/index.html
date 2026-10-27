@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#e9e8df" />
+    <meta name="theme-color" content="#111a2b" />
     <title>SAKSHI — The Fieldroom</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/app.css" />
@@ -12,7 +12,7 @@
   <body>
     <div class="site-shell">
       <header class="site-header">
-        <a class="identity" href="#classify" aria-label="SAKSHI home">
+        <a class="identity" href="#briefing" aria-label="SAKSHI home">
           <span class="identity-symbol" aria-hidden="true"
             ><span></span><span></span
           ></span>
@@ -34,6 +34,9 @@
           </button>
         </nav>
         <div class="header-tools">
+          <button type="button" id="briefing-link" class="briefing-trigger">
+            PRESENT <span aria-hidden="true">↗</span>
+          </button>
           <span class="local-indicator"><i></i> LOCAL SYSTEM</span>
           <label
             class="privacy-switch"
