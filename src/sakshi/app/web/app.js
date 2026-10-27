@@ -142,17 +142,18 @@ function changePage(page) {
 
 function briefingModelHtml(result) {
   if (!result)
-    return '<div class="briefing-model-await"><span>LIVE INFERENCE / LOCAL CPU</span><strong>Four decisions await the case.</strong><p>Run the pinned Maria post through the trained model. Its decisions and any abstention appear here.</p></div>';
+    return '<div class="briefing-model-await"><span>READY TO RUN / ON THIS LAPTOP</span><strong>One post. Four decisions.</strong><p>Run the prepared case to see what the model returns and whether it asks for human review.</p></div>';
   const decisions = result.heads.map((head, i) => {
     const label = head.status === "predicted" ? head.label || "Undecided" :
-      head.status === "gated" ? "Gated" : "Not applicable";
+      head.status === "gated" ? "Skipped" : "Not applicable";
     return '<div class="briefing-model-tile"><small>0' + (i + 1) + ' / ' + esc(head.name) +
       '</small><strong>' + esc(label) + '</strong><span>' +
-      (head.status === "predicted" ? pct(head.probability) + " CALIBRATED" : "NO SCORE") +
+      (head.status === "predicted" ? pct(head.probability) + " MODEL CONFIDENCE" :
+        head.status === "gated" ? "DEPENDS ON FIRST DECISION" : "NO SCORE") +
       '</span></div>';
   }).join("");
   return '<div class="briefing-model-status ' + (result.abstain ? "is-abstained" : "") +
-    '"><span>' + (result.abstain ? "ABSTAINED / HUMAN REVIEW" : "CLASSIFICATION RETURNED") +
+    '"><span>' + (result.abstain ? "MODEL ABSTAINED · HUMAN REVIEW" : "MODEL RESULT") +
     '</span><strong>' + esc(result.abstain ?
       reviewReason(result.abstain_reason) :
       result.model) +
@@ -169,9 +170,6 @@ function briefingHtml(caseData, sitrep) {
   const accepted = sentences.find((s) => s.accepted && s.id === "S3") || sentences.find((s) => s.accepted);
   const rejected = sentences.find((s) => !s.accepted && s.failed_gates?.some((g) => g.name === "number")) ||
     sentences.find((s) => !s.accepted);
-  const originalCount = sentences.filter((s) => Number(s.round) === 0).length;
-  const acceptedCount = sentences.filter((s) => s.accepted).length;
-  const failedRewrites = sentences.filter((s) => !s.accepted && Number(s.round) > 0).length;
   const metrics = state.bootstrap.headline_metrics || [];
   const metricBars = metrics.map((metric, i) => {
     const value = Number(metric.value);
@@ -196,29 +194,29 @@ function briefingHtml(caseData, sitrep) {
     '<div class="briefing-eyebrow"><span>CASE FILE / 01</span><span>SYSTEM FLAG · REVIEW PENDING</span></div>' +
     '<div><h1>One image.<br><em>Two events.</em></h1><p>The same flood photograph appears in a Maria post and an earlier indexed Irma record. The system flags reuse; a reviewer decides what the match means.</p></div>' +
     '<div class="briefing-cover-foot"><div><strong>07</strong><span>DAYS BETWEEN<br>INDEXED APPEARANCES</span></div><button type="button" data-briefing-step="1">FOLLOW THE EVIDENCE <b>↓</b></button></div></div>' +
-    '<div class="briefing-cover-visual"><div class="briefing-visual-top"><span>FROZEN REPLAY / FACE-BLURRED</span><span>PHASH DISTANCE ' +
-    (hasCase ? esc(caseData.phash_distance) : '—') + ' / 64</span></div>' + photos +
-    '<div class="briefing-visual-bottom">EARLIER INDEXED APPEARANCE ≠ VERIFIED ORIGIN</div></div></section>' +
-    '<section class="briefing-scene briefing-model" id="briefing-scene-1"><div class="briefing-section-head"><span>02 / LIVE MODEL</span><span>FOUR TASK HEADS · HUMAN REVIEW</span></div>' +
-    '<div class="briefing-model-layout"><div class="briefing-model-copy"><h2>What does<br>the model <em>know?</em></h2><p>A classifier can help triage a post while remaining uncertain. Run this exact case through the local model and inspect every head.</p>' +
+    '<div class="briefing-cover-visual"><div class="briefing-visual-top"><span>PREPARED CASE / FACE-BLURRED</span><span>EARLIER IMAGE MATCH FOUND</span></div>' + photos +
+    '<div class="briefing-visual-bottom">EARLIER MATCH FOUND · ORIGIN NEEDS REVIEW</div></div></section>' +
+    '<section class="briefing-scene briefing-model" id="briefing-scene-1"><div class="briefing-section-head"><span>02 / LIVE MODEL</span><span>FOUR DECISIONS · HUMAN REVIEW</span></div>' +
+    '<div class="briefing-model-layout"><div class="briefing-model-copy"><h2>What does<br>the model <em>see?</em></h2><p>Run this post once. The model returns four decisions and flags uncertain ones for a person to review.</p>' +
     '<button type="button" id="briefing-run" class="briefing-run" ' + (hasCase ? '' : 'disabled') + '>RUN THIS CASE LIVE <span>↗</span></button>' +
     '<small>THE FIRST RUN LOADS CACHED MODEL WEIGHTS.</small></div><div id="briefing-model-output">' +
     briefingModelHtml(state.briefingAnalysis) + '</div></div><button class="briefing-next" type="button" data-briefing-step="2">NEXT / THE CLAIM <span>↓</span></button></section>' +
-    '<section class="briefing-scene briefing-claim" id="briefing-scene-2"><div class="briefing-section-head"><span>03 / VERIFIED GENERATION</span><span>HURRICANE MARIA · WINDOW 03</span></div>' +
-    '<div class="briefing-claim-top"><div><h2>A claim must<br><em>earn its place.</em></h2><p>Every sentence needs a citation. Failed claims remain visible, along with the gate that stopped them.</p></div>' +
-    '<div class="briefing-verdict"><span>AUTOMATED VERIFIER · NOT HUMAN RATED</span><strong>' +
-    (sitrep?.available ? pct(sitrep.rates.final) : '—') + '</strong><small>FINAL ACCEPTANCE OF ORIGINAL CLAIMS</small><div><b>' +
-    originalCount + ' ORIGINAL</b><b>' + acceptedCount + ' CLEARED</b><b>' + failedRewrites + ' FAILED REWRITES</b></div></div></div>' +
+    '<section class="briefing-scene briefing-claim" id="briefing-scene-2"><div class="briefing-section-head"><span>03 / REPORT CHECK</span><span>HURRICANE MARIA · EXAMPLE WINDOW</span></div>' +
+    '<div class="briefing-claim-top"><div><h2>A claim must<br><em>earn its place.</em></h2><p>A sentence stays only when its cited evidence passes the automatic checks. Here is one kept claim and one stopped claim.</p></div>' +
+    '<div class="briefing-verdict"><span>AUTOMATIC CHECK · NOT HUMAN RATED</span><strong>' +
+    (sitrep?.available ? pct(sitrep.rates.final) : '—') + '</strong><small>OF ORIGINAL DRAFT CLAIMS PASSED THE CHECKS</small></div></div>' +
     '<div class="briefing-claim-pair"><article><span>CLAIM CLEARED / ' + esc(accepted?.id || '—') +
     '</span><p>' + esc(accepted?.text || 'No accepted claim in this window.') + '</p><small>CITED POST / ' +
     esc((accepted?.citations || []).join(', ') || 'NONE') + '</small></article><article class="stopped"><span>CLAIM STOPPED / ' +
     esc(rejected?.id || '—') + '</span><p>' + esc(rejected?.text || 'No rejected claim in this window.') +
-    '</p><small>' + esc((rejected?.failed_gates || []).map((g) => g.name.toUpperCase() + ' GATE · ' + g.detail).join(' / ') || 'VERIFICATION FAILED') +
+    '</p><small>' + esc(rejected?.failed_gates?.some((g) => g.name === 'number')
+      ? 'THE NUMBER IS NOT SUPPORTED BY THE CITED POSTS'
+      : 'THE AUTOMATIC CHECKS DID NOT SUPPORT THIS CLAIM') +
     '</small></article></div><button class="briefing-next" type="button" data-briefing-step="3">NEXT / THE RECORD <span>↓</span></button></section>' +
-    '<section class="briefing-scene briefing-record" id="briefing-scene-3"><div class="briefing-section-head"><span>04 / FROZEN EVALUATION</span><span>OFFICIAL TEST · THREE SEEDS</span></div>' +
-    '<div class="briefing-record-layout"><div><h2>The weak head<br>stays <em>visible.</em></h2><p>Mean macro-F1 across three frozen standard seeds. Each task has its own official test selector. Severity remains the hardest head.</p>' +
+    '<section class="briefing-scene briefing-record" id="briefing-scene-3"><div class="briefing-section-head"><span>04 / TEST RESULTS</span><span>OFFICIAL TEST · THREE RUNS</span></div>' +
+    '<div class="briefing-record-layout"><div><h2>Where it<br><em>struggles.</em></h2><p>The model performs differently across tasks. Damage severity is its weakest result on the official test sets.</p>' +
     '<a href="#results" class="briefing-record-link">OPEN THE FULL RESEARCH RECORD <span>↗</span></a></div><div class="briefing-scores">' + metricBars +
-    '<small>0.0 <span>MEAN MACRO-F1 / NOT A HUMAN STUDY</span> 1.0</small></div></div>' +
+    '<small>0.0 <span>OFFICIAL TEST SCORE · HIGHER IS BETTER</span> 1.0</small></div></div>' +
     '<div class="briefing-exit"><span>THE EVIDENCE IS OPEN TO INSPECTION.</span><div><a href="#classify">INVESTIGATE ↗</a><a href="#replay">EVENT REPLAY ↗</a><a href="#sitrep">SITREP ↗</a><a href="#review">REVIEW ↗</a></div></div></section></div>';
 }
 
@@ -463,9 +461,9 @@ function classifyOutput(result) {
     title("What moved the decision", "XAI / ON DEMAND") +
     '<div class="notice xai-control"><div><span class="micro micro-orange">MODEL EXPLANATION</span>' +
     (result.image
-      ? '<h3>Four questions. One image.</h3><p>Reveal two decisions to compare where each class looked. Maps are computed only when requested.</p>'
-      : '<h3>Trace the words.</h3><p>Choose a decision to reveal signed word attribution for this text-only post.</p>') +
-    '</div><div class="xai-control-actions"><label for="explain-head">DECISION TO EXPLAIN</label><select id="explain-head" class="select">' +
+      ? '<h3>What influenced each answer?</h3><p>Choose one decision and show its evidence. Choose another to compare them.</p>'
+      : '<h3>Which words influenced this answer?</h3><p>Choose a decision to see which words supported or opposed it.</p>') +
+    '</div><div class="xai-control-actions"><label for="explain-head">WHICH DECISION?</label><select id="explain-head" class="select">' +
     result.heads
       .filter((h) => h.status === "predicted")
       .map(
@@ -473,7 +471,7 @@ function classifyOutput(result) {
           '<option value="' + esc(h.key) + '">' + esc(h.name) + "</option>",
       )
       .join("") +
-    '</select><button id="explain-button" class="button">REVEAL EVIDENCE →</button></div></div><div id="explain-output" aria-live="polite"></div>'
+    '</select><button id="explain-button" class="button">SHOW EVIDENCE →</button></div></div><div id="explain-output" aria-live="polite"></div>'
   );
 }
 
@@ -485,8 +483,8 @@ function explanationOutput(result, headKey, classification) {
   const hasImage = Boolean(result.heatmap);
   const imageHead = headKey === "severity" || headKey === "disaster_type";
   const wordNote = imageHead
-    ? "This task uses the image branch, so no word attribution is computed."
-    : "This input contains no text to attribute.";
+    ? "This decision uses the photo, so there are no word highlights."
+    : "This post has no text, so there are no word highlights.";
   const max = Math.max(0.001, ...result.words.map((word) => Math.abs(word.score)));
   const words = result.words.map((word) => {
     const strength = Math.min(0.46, 0.08 + 0.38 * Math.abs(word.score) / max).toFixed(3);
@@ -494,44 +492,48 @@ function explanationOutput(result, headKey, classification) {
     return '<span class="xai-word" style="background:rgba(' + color + ',' + strength +
       ')" title="Signed attribution: ' + esc(Number(word.score).toFixed(3)) + '">' +
       esc(word.text) + '</span>';
-  }).join("");
-  const header = '<div class="xai-result-head"><span>DECISION UNDER INSPECTION / ' + esc(name) +
+  }).join(" ");
+  const header = '<div class="xai-result-head"><span>SELECTED DECISION / ' + esc(name) +
     '</span><strong>' + esc(head?.label || "No label returned") +
     '</strong><div class="xai-verdict"><b>' + pct(head?.probability) +
-    '</b><small>CALIBRATED CONFIDENCE</small><p>Attributions relate to this predicted class. They do not verify the post.</p></div></div>';
-  const wordPanel = '<div class="xai-words"><div class="xai-panel-label">INTEGRATED GRADIENTS / WORD ATTRIBUTION</div>' +
-    '<div class="xai-word-flow">' + words + '</div><div class="xai-legend"><span><i></i> TOWARD THE LABEL</span>' +
-    '<span><i></i> AWAY FROM THE LABEL</span><span>' + esc(result.steps || "—") + ' STEPS</span></div></div>';
+    '</b><small>MODEL CONFIDENCE</small><p>This explains the model’s answer. It does not prove the post is true.</p></div></div>';
+  const wordPanel = '<div class="xai-words"><div class="xai-panel-label">WORDS THAT INFLUENCED THIS ANSWER</div>' +
+    '<div class="xai-word-flow">' + words + '</div><div class="xai-legend"><span><i></i> SUPPORTS THE ANSWER</span>' +
+    '<span><i></i> OPPOSES THE ANSWER</span></div></div>';
   const original = classification.image ? '<figure><img src="' + esc(classification.image) +
-    '" alt="Original analyzed image"><figcaption>01 / ANALYZED IMAGE</figcaption></figure>' : "";
+    '" alt="Original analyzed image"><figcaption>01 / ORIGINAL PHOTO</figcaption></figure>' : "";
   const overlay = '<figure><img src="' + esc(result.heatmap) +
-    '" alt="Grad-CAM heatmap over the analyzed image"><figcaption>02 / GRAD-CAM FOCUS</figcaption></figure>';
-  const visualPanel = '<div class="xai-visual"><div class="xai-panel-label">GRAD-CAM / IMAGE FOCUS</div>' +
+    '" alt="Grad-CAM heatmap over the analyzed image"><figcaption>02 / HIGHLIGHTED VIEW</figcaption></figure>';
+  const visualPanel = '<div class="xai-visual"><div class="xai-panel-label">WHERE THE MODEL FOCUSED</div>' +
     '<div class="xai-image-pair">' + original + overlay + '</div>' +
-    '<p>Warmer areas carry more Grad-CAM weight within this map. It covers the model’s center crop.</p></div>';
+    '<p>Warm colors mark regions with stronger model attribution for this answer.</p></div>';
+  const method = '<details class="xai-method"><summary>How this evidence was calculated</summary><p>' +
+    (hasWords ? 'Word colors are signed Integrated Gradients for the predicted class (' + esc(result.steps || "—") + ' steps). ' : '') +
+    (hasImage ? 'The image overlay is Grad-CAM from the model’s 14×14 visual patch grid, projected onto its center crop. ' : '') +
+    'The percentage is calibrated model confidence. These explanations do not establish factual accuracy.</p></details>';
   if (hasWords && hasImage)
     return '<section class="xai-result">' + header + '<div class="xai-both">' + wordPanel +
-      visualPanel + '</div></section>';
+      visualPanel + '</div>' + method + '</section>';
   if (hasImage)
     return '<section class="xai-result">' + header + '<p class="xai-scope">' + esc(wordNote) +
-      '</p>' + visualPanel + '</section>';
+      '</p>' + visualPanel + method + '</section>';
   if (hasWords)
-    return '<section class="xai-result">' + header + wordPanel + '</section>';
+    return '<section class="xai-result">' + header + wordPanel + method + '</section>';
   return '<section class="xai-result">' + header + '<p class="xai-scope">No attribution is available for this decision.</p></section>';
 }
 
 function explanationComparison(explanations, selectedHead, classification) {
   const revealed = classification.heads.filter((head) => explanations[head.key]?.heatmap);
   if (revealed.length < 2) return "";
-  return '<section class="xai-comparison"><div class="xai-comparison-head"><div><span class="micro micro-orange">SAME POST / SEPARATE CLASS TARGETS</span>' +
-    '<h3>Compare the focus maps.</h3></div><p>Each map is normalized separately. Compare where it lights up, not color intensity across cards.</p></div>' +
+  return '<section class="xai-comparison"><div class="xai-comparison-head"><div><span class="micro micro-orange">ONE PHOTO / DIFFERENT DECISIONS</span>' +
+    '<h3>Same photo. Different focus.</h3></div><p>Compare the highlighted places. Some overlap is expected; color brightness is relative within each map.</p></div>' +
     '<div class="xai-comparison-grid">' + revealed.map((head) =>
       '<button type="button" class="xai-comparison-card' + (head.key === selectedHead ? ' active' : '') +
       '" data-xai-head="' + esc(head.key) + '" aria-label="View ' + esc(head.name) + ' explanation">' +
       '<span class="xai-comparison-meta"><span>' + esc(head.name) + '</span><b>' + pct(head.probability) + '</b></span>' +
       '<strong>' + esc(head.label || "No label returned") + '</strong><img src="' +
       esc(explanations[head.key].heatmap) + '" alt="Grad-CAM for ' + esc(head.name) + '">' +
-      '<small>VIEW THIS DECISION ↗</small></button>').join("") + '</div></section>';
+      '<small>OPEN THIS ANSWER ↗</small></button>').join("") + '</div></section>';
 }
 
 function bindClassify() {
@@ -612,7 +614,7 @@ function bindExplanation() {
     output.innerHTML = explanationComparison(state.explanations, head, state.classify) + (state.explanations[head]
       ? explanationOutput(state.explanations[head], head, state.classify)
       : "");
-    button.textContent = state.explanations[head] ? "EVIDENCE REVEALED ✓" : "REVEAL EVIDENCE →";
+    button.textContent = state.explanations[head] ? "EVIDENCE SHOWN ✓" : "SHOW EVIDENCE →";
   };
   selector.addEventListener("change", render);
   output.addEventListener("click", (event) => {
@@ -628,7 +630,7 @@ function bindExplanation() {
       return;
     }
     button.disabled = true;
-    button.textContent = "TRACING MODEL EVIDENCE…";
+    button.textContent = "READING MODEL EVIDENCE…";
     try {
       const token = state.classify.token;
       const explanation = await post("/api/explain", {
@@ -643,7 +645,7 @@ function bindExplanation() {
       notify(error.message);
     } finally {
       button.disabled = false;
-      button.textContent = state.explanations[selector.value] ? "EVIDENCE REVEALED ✓" : "REVEAL EVIDENCE →";
+      button.textContent = state.explanations[selector.value] ? "EVIDENCE SHOWN ✓" : "SHOW EVIDENCE →";
     }
   });
   render();

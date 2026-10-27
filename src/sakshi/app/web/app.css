@@ -1042,8 +1042,7 @@ main {
 .xai-panel-label,
 .xai-result-head > span,
 .xai-image-pair figcaption,
-.xai-legend,
-.xai-scope {
+.xai-legend {
   font-size: 10px;
   font-weight: 900;
   letter-spacing: .13em;
@@ -1051,6 +1050,10 @@ main {
 }
 .xai-control-actions .button {
   width: 100%;
+}
+.xai-control p {
+  font-size: 15px;
+  line-height: 1.45;
 }
 .xai-result {
   margin: 25px 0 40px;
@@ -1111,7 +1114,8 @@ main {
   border-left: 3px solid var(--orange);
   padding: 4px 0 4px 15px;
   margin: 0 0 25px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.45;
 }
 .xai-panel-label {
   color: var(--mint);
@@ -1141,6 +1145,24 @@ main {
 }
 .xai-visual > p {
   margin-top: 18px;
+}
+.xai-method {
+  margin-top: 27px;
+  padding-top: 18px;
+  border-top: 1px solid #b8c6da88;
+}
+.xai-method summary {
+  color: var(--mint);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+.xai-method p {
+  max-width: 800px;
+  margin: 14px 0 0;
+  color: #bac9dc;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .xai-words {
   margin-bottom: 28px;
@@ -1206,7 +1228,7 @@ main {
   max-width: 420px;
   margin: 0;
   color: var(--mute);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.45;
 }
 .xai-comparison-grid {
@@ -1261,7 +1283,7 @@ main {
   display: block;
   width: 100%;
   padding: 11px 15px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: .12em;
 }
