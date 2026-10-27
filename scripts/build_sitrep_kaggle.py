@@ -10,6 +10,7 @@ import nbformat
 ROOT = Path(__file__).resolve().parents[1]
 JOBS = ROOT / "runs/transfer/kaggle_jobs"
 DATASET = "varun0636/sakshi-sitrep-inputs-20261026"
+CAPTIONED_DATASET = "varun0636/sakshi-sitrep-captioned-inputs-20261027"
 EVENTS = {
     "hurricane_harvey": "harvey",
     "hurricane_maria": "maria",
@@ -46,7 +47,7 @@ if len(inventory['events']) != 3 or inventory['plan_windows'] != 53:
 os.environ['HF_HOME'] = '/kaggle/temp/sakshi_hf_cache'
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 os.chdir(SOURCE_ROOT)
-print({'git_commit': inventory['git_commit'], 'event': EVENT, 'plan_windows': inventory['plan_windows']})
+print({'git_commit': inventory['git_commit'], 'event': EVENT, 'captioned': CAPTIONED, 'plan_windows': inventory['plan_windows']})
 """
 
 INSTALL = r"""
@@ -86,13 +87,16 @@ from sakshi.config import load
 from sakshi.generate.workflow import GenerateConfig, run_sitreps
 
 base = load(SOURCE_ROOT / 'configs/generation/sitrep.yaml', GenerateConfig)
+aggregate_root = 'aggregate_captioned' if CAPTIONED else 'aggregate'
+packet_root = 'packets_captioned' if CAPTIONED else 'packets'
+study_suffix = '_captioned' if CAPTIONED else ''
 config = replace(
     base,
-    aggregate_dir=f'runs/aggregate/full-s0-loeo_{EVENT}/{EVENT}',
-    packets=f'data/processed/packets/full-s0-loeo_{EVENT}.jsonl',
-    output_root='runs/sitreps_hf',
-    report_path='reports/generation/summary_hf.md',
-    evaluation_plan='runs/generation/evaluation_plan.json',
+    aggregate_dir=f'runs/{aggregate_root}/full-s0-loeo_{EVENT}/{EVENT}',
+    packets=f'data/processed/{packet_root}/full-s0-loeo_{EVENT}.jsonl',
+    output_root=f'runs/sitreps_hf{study_suffix}',
+    report_path=f'reports/generation/summary_hf{study_suffix}.md',
+    evaluation_plan=f'runs/generation/evaluation_plan{study_suffix}.json',
     llm=replace(base.llm, backend='hf', model=str(qwen), tokenizer=str(qwen)),
     nli=replace(base.nli, model=str(nli)),
 )
@@ -104,8 +108,9 @@ provenance = {
     'nli_tau_entail': config.nli.tau_entail,
     'nli_tau_contra': config.nli.tau_contra,
     'threshold_status': 'uncalibrated_default_no_human_review',
+    'captioned': CAPTIONED,
 }
-target = SOURCE_ROOT / 'runs/sitreps_hf' / f'full-s0-loeo_{EVENT}' / EVENT
+target = SOURCE_ROOT / f'runs/sitreps_hf{study_suffix}' / f'full-s0-loeo_{EVENT}' / EVENT
 completion = run_sitreps(config)
 (target / 'model_provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
 print({'completion': str(completion), 'event': EVENT})
@@ -113,7 +118,7 @@ print({'completion': str(completion), 'event': EVENT})
 import zipfile
 from sakshi.compute.files import hash_file
 
-export = Path('/kaggle/working') / f'sitrep-hf-{EVENT}.zip'
+export = Path('/kaggle/working') / f'sitrep-hf{study_suffix}-{EVENT}.zip'
 with zipfile.ZipFile(export, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
     for path in sorted(target.glob('*.json')):
         archive.write(path, arcname=f'{EVENT}/{path.name}')
@@ -124,10 +129,11 @@ print({'export': str(export), 'sha256': hash_file(export), 'bytes': export.stat(
 """
 
 
-def build() -> list[Path]:
+def build(*, captioned: bool = False) -> list[Path]:
     output = []
     for event, short in EVENTS.items():
-        job = JOBS / f"sitrep-hf-{short}"
+        suffix = "-captioned" if captioned else ""
+        job = JOBS / f"sitrep-hf{suffix}-{short}"
         job.mkdir(parents=True, exist_ok=True)
         notebook = nbformat.v4.new_notebook(
             metadata={"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}}
@@ -137,7 +143,7 @@ def build() -> list[Path]:
                 f"# SAKSHI WP5 · {event}\n\nPrivate, pinned Qwen2.5-7B and DeBERTa generation on the frozen 53-window plan. "
                 "Default NLI thresholds are uncalibrated until human review."
             ),
-            nbformat.v4.new_code_cell(f"EVENT = {event!r}\n" + SETUP),
+            nbformat.v4.new_code_cell(f"EVENT = {event!r}\nCAPTIONED = {captioned!r}\n" + SETUP),
             nbformat.v4.new_code_cell(INSTALL),
             nbformat.v4.new_code_cell(GENERATE),
         ]
@@ -145,11 +151,11 @@ def build() -> list[Path]:
             if cell.cell_type == "code":
                 compile(cell.source, f"sitrep-{short}-cell-{index}", "exec")
         nbformat.validate(notebook)
-        path = job / f"sakshi-sitrep-hf-{short}.ipynb"
+        path = job / f"sakshi-sitrep-hf{suffix}-{short}.ipynb"
         nbformat.write(notebook, path)
         metadata = {
-            "id": f"varun0636/sakshi-sitrep-hf-{short}",
-            "title": f"SAKSHI Sitrep HF {short}",
+            "id": f"varun0636/sakshi-sitrep-hf{suffix}-{short}",
+            "title": f"SAKSHI Sitrep HF{suffix} {short}",
             "code_file": path.name,
             "language": "python",
             "kernel_type": "notebook",
@@ -158,7 +164,7 @@ def build() -> list[Path]:
             "enable_tpu": False,
             "enable_internet": True,
             "keywords": ["gpu"],
-            "dataset_sources": [DATASET],
+            "dataset_sources": [CAPTIONED_DATASET if captioned else DATASET],
             "kernel_sources": [],
             "competition_sources": [],
             "model_sources": [],
@@ -173,5 +179,10 @@ def build() -> list[Path]:
 
 
 if __name__ == "__main__":
-    for path in build():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--captioned", action="store_true")
+    args = parser.parse_args()
+    for path in build(captioned=args.captioned):
         print(path)

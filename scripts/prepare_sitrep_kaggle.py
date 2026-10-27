@@ -18,7 +18,7 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=paths.REPO, capture_output=True, text=True, check=True).stdout.strip()
 
 
-def prepare(output: Path) -> Path:
+def prepare(output: Path, *, captioned: bool = False) -> Path:
     output = output.resolve()
     if output.exists() and any(output.iterdir()):
         raise FileExistsError(f"choose an empty output directory: {output}")
@@ -41,18 +41,22 @@ def prepare(output: Path) -> Path:
     inputs = output / "inputs.zip"
     input_files = {}
     with zipfile.ZipFile(inputs, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
-        plan = paths.REPO / "runs/generation/evaluation_plan.json"
+        plan = paths.REPO / (
+            "runs/generation/evaluation_plan_captioned.json" if captioned else "runs/generation/evaluation_plan.json"
+        )
         files = [plan]
         for event in EVENTS:
-            files += sorted((paths.REPO / f"runs/aggregate/full-s0-loeo_{event}/{event}").glob("*"))
-            files.append(paths.PROCESSED / f"packets/full-s0-loeo_{event}.jsonl")
+            root = "aggregate_captioned" if captioned else "aggregate"
+            packet_root = "packets_captioned" if captioned else "packets"
+            files += sorted((paths.REPO / f"runs/{root}/full-s0-loeo_{event}/{event}").glob("*"))
+            files.append(paths.PROCESSED / f"{packet_root}/full-s0-loeo_{event}.jsonl")
         for path in files:
             if not path.is_file():
                 raise FileNotFoundError(path)
             relative = path.relative_to(paths.REPO).as_posix()
             input_files[relative] = hash_file(path)
             archive.write(path, arcname=relative)
-    plan_data = json.loads((paths.REPO / "runs/generation/evaluation_plan.json").read_text())
+    plan_data = json.loads(plan.read_text())
     inventory = {
         "git_commit": commit,
         "source_archive_sha256": hash_file(source),
@@ -66,8 +70,14 @@ def prepare(output: Path) -> Path:
     (output / "dataset-metadata.json").write_text(
         json.dumps(
             {
-                "title": "SAKSHI private WP5 sitrep inputs 20261026",
-                "id": "varun0636/sakshi-sitrep-inputs-20261026",
+                "title": (
+                    "SAKSHI private WP5 captioned sitrep inputs 20261027"
+                    if captioned else "SAKSHI private WP5 sitrep inputs 20261026"
+                ),
+                "id": (
+                    "varun0636/sakshi-sitrep-captioned-inputs-20261027"
+                    if captioned else "varun0636/sakshi-sitrep-inputs-20261026"
+                ),
                 "licenses": [{"name": "unknown"}],
             },
             indent=2,
@@ -82,5 +92,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--captioned", action="store_true")
     args = parser.parse_args()
-    print(prepare(args.output))
+    print(prepare(args.output, captioned=args.captioned))
