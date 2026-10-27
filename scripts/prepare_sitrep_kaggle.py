@@ -71,7 +71,7 @@ def prepare(output: Path, *, captioned: bool = False) -> Path:
         json.dumps(
             {
                 "title": (
-                    "SAKSHI private WP5 captioned sitrep inputs 20261027"
+                    "SAKSHI captioned WP5 inputs 20261027"
                     if captioned else "SAKSHI private WP5 sitrep inputs 20261026"
                 ),
                 "id": (
