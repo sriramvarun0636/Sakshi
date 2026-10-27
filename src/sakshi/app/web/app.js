@@ -460,8 +460,8 @@ function classifyOutput(result) {
     "</span></div></div>" +
     origin +
     "</div>" +
-    title("What moved the decision", "ON DEMAND / CPU") +
-    '<div class="notice"><div><span class="micro micro-orange">EVIDENCE MAP</span><h3>Inspect the model, not just the label.</h3><p>Word attribution and image focus are computed only when requested.</p></div><div><select id="explain-head" class="select">' +
+    title("What moved the decision", "XAI / ON DEMAND") +
+    '<div class="notice xai-control"><div><span class="micro micro-orange">MODEL EXPLANATION</span><h3>Trace one decision to its inputs.</h3><p>Choose a task head, then reveal the word and image evidence available for that prediction.</p></div><div class="xai-control-actions"><label for="explain-head">DECISION TO EXPLAIN</label><select id="explain-head" class="select">' +
     result.heads
       .filter((h) => h.status === "predicted")
       .map(
@@ -469,38 +469,51 @@ function classifyOutput(result) {
           '<option value="' + esc(h.key) + '">' + esc(h.name) + "</option>",
       )
       .join("") +
-    '</select><button id="explain-button" class="button" style="margin-top:9px;width:100%">REVEAL EVIDENCE →</button></div></div><div id="explain-output"></div>' +
-    '<div style="margin:27px 0"><button class="button ghost small" disabled>GENERATE EVIDENCE RATIONALE</button><p class="micro micro-mute">REQUIRES SAME-MODEL PACKETS AND LOCAL QWEN / NLI WEIGHTS. SEE DOCS/GENERATION.MD.</p></div>'
+    '</select><button id="explain-button" class="button">REVEAL EVIDENCE →</button></div></div><div id="explain-output" aria-live="polite"></div>'
   );
 }
 
-function explanationOutput(result) {
+function explanationOutput(result, headKey, classification) {
   if (!result) return "";
-  const max = Math.max(0.001, ...result.words.map((w) => Math.max(0, w.score)));
-  return (
-    '<div class="explanation-grid" style="margin-top:25px"><div class="technical-card"><h3>01 / WORD ATTRIBUTION</h3>' +
-    (result.words.length
-      ? result.words
-          .map(
-            (w) =>
-              '<span class="word-chip" style="background:rgba(67,104,255,' +
-              ((Math.max(0, w.score) / max) * 0.38).toFixed(3) +
-              ')">' +
-              esc(w.text) +
-              "</span>",
-          )
-          .join("")
-      : "<p>No text attribution for this head.</p>") +
-    '<p class="micro micro-mute">INTEGRATED GRADIENTS / ' +
-    esc(result.steps || "—") +
-    ' STEPS</p></div><div class="technical-card"><h3>02 / IMAGE FOCUS</h3>' +
-    (result.heatmap
-      ? '<img class="heatmap-image" src="' +
-        result.heatmap +
-        '" alt="Grad-CAM overlay">'
-      : "<p>No image heatmap for this decision.</p>") +
-    '<p class="micro micro-mute">GRAD-CAM / SOURCE IMAGE</p></div></div>'
-  );
+  const head = classification.heads.find((item) => item.key === headKey);
+  const name = head?.name || displayName(headKey);
+  const hasWords = result.words.length > 0;
+  const hasImage = Boolean(result.heatmap);
+  const imageHead = headKey === "severity" || headKey === "disaster_type";
+  const wordNote = imageHead
+    ? "This task uses the image branch, so no word attribution is computed."
+    : "This input contains no text to attribute.";
+  const max = Math.max(0.001, ...result.words.map((word) => Math.abs(word.score)));
+  const words = result.words.map((word) => {
+    const strength = Math.min(0.46, 0.08 + 0.38 * Math.abs(word.score) / max).toFixed(3);
+    const color = word.score < 0 ? "236,111,146" : "67,104,255";
+    return '<span class="xai-word" style="background:rgba(' + color + ',' + strength +
+      ')" title="Signed attribution: ' + esc(Number(word.score).toFixed(3)) + '">' +
+      esc(word.text) + '</span>';
+  }).join("");
+  const header = '<div class="xai-result-head"><span>EXPLANATION / ' + esc(name) +
+    '</span><strong>' + (hasWords && hasImage ? "Words and image, in view." :
+      hasImage ? "Where the image mattered." : "Which words mattered.") +
+    '</strong><p>These maps explain this model prediction; they do not verify whether the post is true.</p></div>';
+  const wordPanel = '<div class="xai-words"><div class="xai-panel-label">INTEGRATED GRADIENTS / WORD ATTRIBUTION</div>' +
+    '<div class="xai-word-flow">' + words + '</div><div class="xai-legend"><span><i></i> TOWARD THE LABEL</span>' +
+    '<span><i></i> AWAY FROM THE LABEL</span><span>' + esc(result.steps || "—") + ' STEPS</span></div></div>';
+  const original = classification.image ? '<figure><img src="' + esc(classification.image) +
+    '" alt="Original analyzed image"><figcaption>01 / ANALYZED IMAGE</figcaption></figure>' : "";
+  const overlay = '<figure><img src="' + esc(result.heatmap) +
+    '" alt="Grad-CAM heatmap over the analyzed image"><figcaption>02 / GRAD-CAM FOCUS</figcaption></figure>';
+  const visualPanel = '<div class="xai-visual"><div class="xai-panel-label">GRAD-CAM / IMAGE FOCUS</div>' +
+    '<div class="xai-image-pair">' + original + overlay + '</div>' +
+    '<p>Brighter regions contributed more to this decision. The map covers the model’s center crop.</p></div>';
+  if (hasWords && hasImage)
+    return '<section class="xai-result">' + header + '<div class="xai-both">' + wordPanel +
+      visualPanel + '</div></section>';
+  if (hasImage)
+    return '<section class="xai-result">' + header + '<p class="xai-scope">' + esc(wordNote) +
+      '</p>' + visualPanel + '</section>';
+  if (hasWords)
+    return '<section class="xai-result">' + header + wordPanel + '</section>';
+  return '<section class="xai-result">' + header + '<p class="xai-scope">No attribution is available for this decision.</p></section>';
 }
 
 function bindClassify() {
@@ -574,17 +587,25 @@ function bindClassify() {
 function bindExplanation() {
   const button = document.getElementById("explain-button");
   if (!button) return;
+  document.getElementById("explain-head").addEventListener("change", () => {
+    document.getElementById("explain-output").innerHTML = "";
+  });
   button.addEventListener("click", async () => {
     button.disabled = true;
     button.textContent = "TRACING MODEL EVIDENCE…";
     try {
+      const head = document.getElementById("explain-head").value;
+      const token = state.classify.token;
       state.explanation = await post("/api/explain", {
-        token: state.classify.token,
-        head: document.getElementById("explain-head").value,
+        token,
+        head,
         presentation: presentation.checked,
       });
+      if (state.classify?.token !== token || document.getElementById("explain-head")?.value !== head) return;
       document.getElementById("explain-output").innerHTML = explanationOutput(
         state.explanation,
+        head,
+        state.classify,
       );
     } catch (error) {
       notify(error.message);
