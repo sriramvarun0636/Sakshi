@@ -405,10 +405,6 @@ def _model():
     run = data.classifier_run(ROOT)
     if run is None:
         raise ValueError("Classifier checkpoint missing")
-    cache = Path("/private/tmp/sakshi_hf_cache")
-    if "HF_HOME" not in os.environ and cache.is_dir():
-        os.environ["HF_HOME"] = str(cache)
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
     return Predictor.from_run(run, device="cpu")
 
 

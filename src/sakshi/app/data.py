@@ -39,8 +39,15 @@ def read_json(path: Path) -> dict:
 
 
 def classifier_run(root: Path = paths.REPO) -> Path | None:
-    runs = sorted((root / "runs" / "classifier").glob("*/checkpoint.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
-    return runs[0].parent if runs else None
+    # The live dashboard uses the frozen, four-head standard seed-0 model.
+    # Selecting the newest checkpoint can silently pick a single-head ablation.
+    base = root / "runs" / "classifier"
+    runs = (
+        p
+        for p in base.glob("full-s0-????????-??????")
+        if (p / "checkpoint.pt").is_file() and (p / "evaluation_complete.json").is_file()
+    )
+    return max(runs, default=None)
 
 
 def aggregates(root: Path = paths.REPO) -> list[AggregateSource]:

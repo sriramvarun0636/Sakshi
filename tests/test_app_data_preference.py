@@ -28,3 +28,19 @@ def test_captioned_artifacts_take_priority(tmp_path):
     captioned_sitrep = _artifact(tmp_path, "sitreps_hf_captioned", event, sitrep=True)
     assert data.preferred_aggregates(tmp_path)[event].directory == captioned_aggregate
     assert data.sitreps(tmp_path)[event].directory == captioned_sitrep
+
+
+def test_live_dashboard_selects_frozen_full_classifier(tmp_path):
+    base = tmp_path / "runs" / "classifier"
+    full = base / "full-s0-20261024-062724"
+    full.mkdir(parents=True)
+    (full / "checkpoint.pt").touch()
+    (full / "evaluation_complete.json").touch()
+    ablation = base / "b4_disaster_type-s2-20261026-103346"
+    ablation.mkdir()
+    (ablation / "checkpoint.pt").touch()
+    incomplete = base / "full-s0-20261027-000000"
+    incomplete.mkdir()
+    (incomplete / "checkpoint.pt").touch()
+
+    assert data.classifier_run(tmp_path) == full

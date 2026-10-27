@@ -19,19 +19,10 @@ from sakshi.data.events import EVENTS
 ROOT = Path(os.environ.get("SAKSHI_APP_ROOT", paths.REPO)).expanduser().resolve()
 
 
-def _cache_hint() -> None:
-    # The team's pinned encoder files live here; the checkpoint alone is insufficient.
-    local = Path("/private/tmp/sakshi_hf_cache")
-    if "HF_HOME" not in os.environ and local.is_dir():
-        os.environ["HF_HOME"] = str(local)
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-
-
 @st.cache_resource(show_spinner="Loading calibrated classifier on CPU…")
 def _predictor(run: str):
     from sakshi.models.predict import Predictor
 
-    _cache_hint()
     return Predictor.from_run(Path(run), device="cpu")
 
 
@@ -39,7 +30,6 @@ def _predictor(run: str):
 def _provenance_index(root: str):
     from sakshi.provenance.index import ClipGraphicScorer, ProvenanceIndex
 
-    _cache_hint()
     base = Path(root)
     return ProvenanceIndex.load(
         index_path=base / "data" / "processed" / "provenance" / "index.parquet",
