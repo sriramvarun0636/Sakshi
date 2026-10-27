@@ -2,8 +2,11 @@
 
 WP3 uses the trained classifier in `runs/classifier/full-s0-20261024-062724/`.
 The code supports all four main heads, gated/missing modalities, packet production,
-faithfulness and cascading randomisation. Official explanation research runs remain
-pending; the current reports with `_dev` in their names are small integration checks.
+faithfulness and cascading randomisation. The 1,449 selected Harvey, Maria and Mexico
+research packets are complete and validated. The formal official-test faithfulness
+(500/head) and sanity (100/head) GPU jobs are running on Kaggle; no formal audit result
+is claimed until all four heads have been restored and merged. Reports with `_dev` in
+their names are small integration checks.
 
 ## Install and run a small check
 
@@ -75,8 +78,8 @@ source/runtime hashes, predictions and a completion marker. Its prediction table
 packets can be checked with WP4's `load_packets` and `validate_selected`.
 
 Existing §9.4 captions are read from `data/processed/captions.parquet` and marked
-`model_generated: true`. Missing captions stay null. The Qwen caption generation job is
-still pending and is not replaced with inferred descriptions. Region captions remain
+`model_generated: true`. Missing captions stay null. The Qwen caption generation job
+remains pending and is not replaced with inferred descriptions. Region captions remain
 optional. Data, words, packets, heatmaps and source-image overlays stay under ignored
 `data/` or `runs/`; only tables and non-image audit curves are suitable for Git.
 

@@ -65,6 +65,8 @@ def render_b6(result: dict) -> Path:
         f"Failures: **{result['failed']:,}** ({result['failure_rate']:.1%}); failed parses use the frozen training majority.",
         f"Latency per post: median **{latency['median']:.2f}s**, mean **{latency['mean']:.2f}s**, p95 **{latency['p95']:.2f}s**.",
         f"Hierarchy contradiction rate: **{result['hierarchy_contradiction_rate']:.3f}**.",
+        "This is an intent-to-treat baseline: every failed JSON/repair attempt receives the frozen training-majority labels. "
+        "The high failure rate materially affects the scores.",
         "The model emits labels only; probability calibration is not applicable.",
         "",
         "| Official selector | n | Macro-F1 [95% bootstrap CI] | Weighted-F1 | Accuracy | Failure rate |",
