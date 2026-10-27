@@ -4,6 +4,7 @@ const state = {
   bootstrap: null,
   event: "hurricane_maria",
   window: 0,
+  sitrepWindow: 2,
   lens: "all",
   reviewLens: "pending",
   report: null,
@@ -12,6 +13,7 @@ const state = {
   timer: null,
   classify: null,
   explanation: null,
+  featuredCase: null,
 };
 const view = document.getElementById("view");
 const presentation = document.getElementById("presentation");
@@ -143,12 +145,78 @@ function radarArt() {
   );
 }
 
+function featuredCaseHtml(data) {
+  if (!data?.available) return radarArt();
+  return (
+    '<div class="case-study"><div class="case-top"><span>FROM THE FROZEN PROVENANCE REPLAY</span><strong><i></i> SYSTEM FLAG / REVIEW PENDING</strong></div>' +
+    '<div class="case-pair"><figure><div class="case-photo"><img src="' +
+    esc(data.current_image) +
+    '" alt="Image posted during Hurricane Maria"></div><figcaption><b>' +
+    esc(data.current_event) +
+    "</b><span>" +
+    esc(data.current_date) +
+    '</span></figcaption></figure><span class="case-arrow" aria-hidden="true">↔</span><figure><div class="case-photo"><img src="' +
+    esc(data.origin_image) +
+    '" alt="Earlier indexed image from Hurricane Irma"></div><figcaption><b>' +
+    esc(data.origin_event) +
+    "</b><span>" +
+    esc(data.origin_date) +
+    "</span></figcaption></figure></div>" +
+    '<div class="case-bottom"><div><small>PERCEPTUAL HASH DISTANCE</small><strong>' +
+    esc(data.phash_distance) +
+    '<em> / 64</em></strong></div><p>The same flood photograph appears in two event records. The system flags the earlier indexed source for review.</p></div>' +
+    '<div class="case-actions"><button type="button" id="analyze-featured" class="case-link">RUN LIVE ANALYSIS <span>↗</span></button><a class="case-link" href="#replay">OPEN EVENT REPLAY <span>↗</span></a></div></div>'
+  );
+}
+
+async function renderFeaturedCase() {
+  const host = document.getElementById("featured-case");
+  if (!host) return;
+  if (!state.featuredCase) {
+    try {
+      state.featuredCase = await api("/api/featured-case");
+    } catch {
+      state.featuredCase = { available: false };
+    }
+  }
+  if (state.page !== "classify" || !host.isConnected) return;
+  host.classList.toggle("is-case", Boolean(state.featuredCase.available));
+  host.innerHTML = featuredCaseHtml(state.featuredCase);
+  host.querySelector("#analyze-featured")?.addEventListener("click", analyzeFeaturedCase);
+}
+
+async function analyzeFeaturedCase() {
+  const button = document.getElementById("analyze-featured");
+  if (!button) return;
+  button.disabled = true;
+  button.textContent = "RUNNING LOCAL MODEL…";
+  try {
+    state.classify = await post("/api/featured-analysis", {
+      presentation: presentation.checked,
+    });
+    state.explanation = null;
+    const output = document.getElementById("classify-output");
+    if (output) {
+      output.innerHTML = classifyOutput(state.classify);
+      bindExplanation();
+      output.scrollIntoView({ behavior: "smooth" });
+    }
+  } catch (error) {
+    notify(error.message);
+  } finally {
+    button.disabled = false;
+    button.innerHTML = "RUN LIVE ANALYSIS <span>↗</span>";
+  }
+}
+
 function classifyShell() {
   return (
     '<div class="page"><div class="page-inner">' +
     pageIndex("01", "INVESTIGATE") +
-    '<section class="hero"><div class="hero-copy"><div class="hero-kicker">SITUATIONAL AWARENESS / LIVE ANALYSIS</div><div><h1>See the signal.<br><em>Trace</em> the source.</h1><p>One post, four decisions, and a visible path back to the evidence. Read the model; question the image.</p></div><div class="hero-foot"><span class="pulse"></span> CPU INFERENCE <span class="slash">/</span> LOCAL ONLY <span class="slash">/</span> HUMAN REVIEW</div></div><div class="hero-visual">' +
-    radarArt() +
+    '<section class="hero"><div class="hero-copy"><div class="hero-kicker">SITUATIONAL AWARENESS / LIVE ANALYSIS</div><div><h1>See the signal.<br><em>Trace</em> the source.</h1><p>One post, four decisions, and a visible path back to the evidence. Read the model; question the image.</p></div><div class="hero-foot"><span class="pulse"></span> CPU INFERENCE <span class="slash">/</span> LOCAL ONLY <span class="slash">/</span> HUMAN REVIEW</div></div><div class="hero-visual' +
+    (state.featuredCase?.available ? " is-case" : "") +
+    '" id="featured-case">' +
+    featuredCaseHtml(state.featuredCase) +
     "</div></section>" +
     '<div class="ribbon"><div class="ribbon-cell"><small>01 / READ</small><strong>Four <em>decisions</em></strong></div><div class="ribbon-cell"><small>02 / TRACE</small><strong>Image <em>origin</em></strong></div><div class="ribbon-cell"><small>03 / EXPLAIN</small><strong>Evidence <em>map</em></strong></div><div class="ribbon-cell"><small>04 / ESCALATE</small><strong>Human <em>review</em></strong></div></div>' +
     title("The input desk", "TEXT / IMAGE / CONTEXT") +
@@ -629,7 +697,7 @@ function startPlayback() {
 function sitrepHtml(data) {
   const events = state.bootstrap.events || [];
   const selector =
-    '<div class="field" style="max-width:340px;margin:30px 0"><label for="sitrep-event">EVENT ARCHIVE</label><select id="sitrep-event">' +
+    '<div class="field sitrep-event-field"><label for="sitrep-event">EVENT ARCHIVE</label><select id="sitrep-event">' +
     events
       .map(
         (e) =>
@@ -643,6 +711,21 @@ function sitrepHtml(data) {
       )
       .join("") +
     "</select></div>";
+  const accepted = data.available ? data.sentences.filter((s) => s.accepted) : [];
+  const rejected = data.available ? data.sentences.filter((s) => !s.accepted) : [];
+  const originalCount = data.available ? data.sentences.filter((s) => Number(s.round) === 0).length : 0;
+  const failedRewrites = rejected.filter((s) => Number(s.round) > 0).length;
+  const verdict = data.available
+    ? '<aside class="verifier-panel"><div class="verifier-top">AUTOMATED VERIFIER <span>NOT HUMAN RATED</span></div><div class="verifier-number"><strong>' +
+      pct(data.rates.final) +
+      '</strong><span>FINAL ACCEPTANCE<br>OF ORIGINAL CLAIMS</span></div><div class="verifier-ledger"><div><b>' +
+      originalCount +
+      '</b><small>ORIGINAL CLAIMS</small></div><div><b>' +
+      accepted.length +
+      '</b><small>CLAIMS CLEARED</small></div><div><b>' +
+      failedRewrites +
+      '</b><small>FAILED REWRITES</small></div></div><button type="button" id="jump-rejected" class="verifier-jump">INSPECT REJECTED CLAIMS <span>↓</span></button></aside>'
+    : "";
   const system = (data.system_lines || [])
     .map(
       (line, i) =>
@@ -662,18 +745,7 @@ function sitrepHtml(data) {
       title("Computed observations", "BASELINE / NO GENERATED CLAIMS") +
       (system || "<p>No system observations are available.</p>");
   } else {
-    const accepted = data.sentences.filter((s) => s.accepted),
-      rejected = data.sentences.filter((s) => !s.accepted);
     body =
-      '<div class="ribbon" style="border:1px solid var(--ink);margin:40px 0"><div class="ribbon-cell"><small>ACCEPTED CLAIMS</small><strong>' +
-      accepted.length +
-      '</strong></div><div class="ribbon-cell"><small>REJECTED CLAIMS</small><strong>' +
-      rejected.length +
-      '</strong></div><div class="ribbon-cell"><small>INITIAL VERIFICATION</small><strong>' +
-      pct(data.rates.initial) +
-      '</strong></div><div class="ribbon-cell"><small>AFTER REWRITE</small><strong>' +
-      pct(data.rates.final) +
-      "</strong></div></div>" +
       title("System observations", data.date) +
       system +
       title(
@@ -688,20 +760,24 @@ function sitrepHtml(data) {
             "System observations remain available; no unsupported sentence is promoted.",
             "",
           )) +
+      '<div id="rejected-claims">' +
       title("Stopped by verification", "REJECTED CLAIMS REMAIN VISIBLE") +
       (rejected.length
         ? rejected.map((s) => claimHtml(s, data.citations)).join("")
-        : "<p>No rejected sentences in this window.</p>");
+        : "<p>No rejected sentences in this window.</p>") +
+      "</div>";
   }
   return (
     '<div class="page"><div class="page-inner">' +
     pageIndex("03", "SITUATION REPORT") +
     '<div class="document-page"><div class="document-rail"><span class="micro micro-orange">EVIDENCE<br>WITH RECEIPTS</span><span class="vertical-label">VERIFIED GENERATION / 03</span><span class="micro">SAKSHI<br>RESEARCH</span></div><div class="document-body"><div class="document-header"><span>FIELD DOCUMENT / 03</span><span>' +
     (data.available ? "AUTOMATED EVIDENCE CHECK" : "AWAITING EVIDENCE") +
-    '</span></div><h1>Claims,<br><em>with receipts.</em></h1><p class="lede">Each sentence needs an evidence trail. Rejected claims stay in view so the verifier can be questioned too.</p>' +
+    '</span></div><div class="document-intro"><div><h1>Claims,<br><em>with receipts.</em></h1><p class="lede">Each sentence needs an evidence trail. Rejected claims stay in view so the verifier can be questioned too.</p></div>' +
+    verdict +
+    '</div><div class="sitrep-controls">' +
     selector +
     (data.available
-      ? '<div class="field" style="max-width:340px"><label for="sitrep-window">WINDOW ' +
+      ? '<div class="field sitrep-window-field"><label for="sitrep-window">WINDOW ' +
         (data.window + 1) +
         " / " +
         data.window_count +
@@ -709,12 +785,12 @@ function sitrepHtml(data) {
         (data.window_count - 1) +
         '" value="' +
         data.window +
-        '"></div><div class="micro micro-mute" style="margin-top:16px">' +
+        '"></div></div><div class="sitrep-model micro micro-mute">' +
         esc(data.model_display) +
-        '</div><div class="micro micro-mute" style="margin-top:6px">' +
+        '</div><div class="sitrep-note micro micro-mute">' +
         esc(data.verification_note) +
         "</div>"
-      : "") +
+      : "</div>") +
     body +
     "</div></div></div></div>"
   );
@@ -757,21 +833,24 @@ async function renderSitrep() {
   loading("Opening the evidence sheet");
   try {
     const data = await api(
-      "/api/sitrep?" + params({ event: state.event, window: state.window }),
+      "/api/sitrep?" + params({ event: state.event, window: state.sitrepWindow }),
     );
     if (version !== requestVersion) return;
     view.innerHTML = sitrepHtml(data);
     document.getElementById("sitrep-event")?.addEventListener("change", (e) => {
       state.event = e.target.value;
-      state.window = 0;
+      state.sitrepWindow = e.target.value === "hurricane_maria" ? 2 : 0;
       renderSitrep();
     });
     document
       .getElementById("sitrep-window")
       ?.addEventListener("change", (e) => {
-        state.window = Number(e.target.value);
+        state.sitrepWindow = Number(e.target.value);
         renderSitrep();
       });
+    document.getElementById("jump-rejected")?.addEventListener("click", () =>
+      document.getElementById("rejected-claims")?.scrollIntoView({ behavior: "smooth" }),
+    );
     document.querySelectorAll("[data-citation]").forEach((b) =>
       b.addEventListener("click", () => {
         const row = data.citations[b.dataset.citation];
@@ -975,6 +1054,34 @@ function markdown(text) {
   flush();
   return html;
 }
+function resultChartHtml(metrics) {
+  if (!Array.isArray(metrics) || metrics.length !== 4)
+    return '<div class="diagram"><span>05</span></div>';
+  return (
+    '<div class="diagram metric-diagram"><div class="metric-chart-heading"><span>OFFICIAL TEST / THREE SEEDS</span><strong>MEAN MACRO-F1</strong></div><div class="metric-chart-rows">' +
+    metrics
+      .map((metric, i) => {
+        const value = Number(metric.value);
+        const width = Math.max(0, Math.min(100, value * 100));
+        return (
+          '<div class="metric-chart-row' +
+          (value < 0.5 ? " weak" : "") +
+          '"><div class="metric-row-label"><span>0' +
+          (i + 1) +
+          " / " +
+          esc(metric.label) +
+          "</span><b>" +
+          esc(value.toFixed(3)) +
+          '</b></div><div class="metric-track"><i style="width:' +
+          width.toFixed(1) +
+          '%"></i></div></div>'
+        );
+      })
+      .join("") +
+    '</div><div class="metric-chart-foot"><span>0.0</span><span>FROZEN RESULT · WEAK SEVERITY HEAD SHOWN</span><span>1.0</span></div></div>'
+  );
+}
+
 function resultsHtml(data) {
   const list = data.reports
     .map(
@@ -993,7 +1100,9 @@ function resultsHtml(data) {
   return (
     '<div class="page"><div class="page-inner">' +
     pageIndex("05", "RESEARCH RESULTS") +
-    '<div class="results-head"><div class="copy"><span class="micro" style="color:var(--mint)">READ THE EVIDENCE / 05</span><h1>The record,<br>in view.</h1><p>Methods, findings, and limits. Development checks remain distinct from final research results.</p></div><div class="diagram"><span>05</span></div></div><div class="ribbon"><div class="ribbon-cell"><small>REPORTS AVAILABLE</small><strong>' +
+    '<div class="results-head"><div class="copy"><span class="micro" style="color:var(--mint)">READ THE EVIDENCE / 05</span><h1>The record,<br>in view.</h1><p>Methods, findings, and limits. Development checks remain distinct from final research results.</p></div>' +
+    resultChartHtml(state.bootstrap.headline_metrics) +
+    '</div><div class="ribbon"><div class="ribbon-cell"><small>REPORTS AVAILABLE</small><strong>' +
     fmt(data.reports.length) +
     '</strong></div><div class="ribbon-cell"><small>PROVENANCE EVENTS</small><strong>' +
     fmt(state.bootstrap.provenance_events) +
@@ -1064,6 +1173,7 @@ function render() {
   if (state.page === "classify") {
     view.innerHTML = classifyShell();
     bindClassify();
+    renderFeaturedCase();
   } else if (state.page === "replay") renderReplay();
   else if (state.page === "sitrep") renderSitrep();
   else if (state.page === "review") renderReview();

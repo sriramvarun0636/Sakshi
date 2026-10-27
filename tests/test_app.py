@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from PIL import Image
 
@@ -224,3 +225,44 @@ def test_review_preview_prefers_context_and_never_renders_nan(tmp_path, monkeypa
     view = web_server._review_view("pending", True)
     assert [card["text"] for card in view["items"]] == ["Residents need shelter", "Image-only post"]
     assert view["items"][1]["event"] == "Not available"
+
+
+def test_presentation_chart_reads_frozen_three_seed_report():
+    from sakshi.app import web_server
+
+    assert web_server._headline_metrics() == [
+        {"label": "Informativeness", "value": 0.919},
+        {"label": "Humanitarian", "value": 0.822},
+        {"label": "Disaster type", "value": 0.856},
+        {"label": "Severity · DMD", "value": 0.443},
+    ]
+
+
+def test_featured_case_requires_the_frozen_review_pending_pair(monkeypatch):
+    from sakshi.app import web_server
+
+    row = pd.DataFrame(
+        [
+            {
+                "post_id": web_server._FEATURED_QUERY,
+                "status": "recycled",
+                "origin_post_id": web_server._FEATURED_ORIGIN,
+                "phash_distance": 8,
+                "posted_at": "2017-09-25T03:56:53Z",
+                "origin_first_seen": "2017-09-18T13:20:27Z",
+            }
+        ]
+    )
+    monkeypatch.setattr(web_server, "_replay", lambda event: row)
+    monkeypatch.setattr(web_server, "_thumbnail", lambda *_args, **_kwargs: "data:image/webp;base64,AA==")
+    case = web_server._featured_case()
+    assert case["available"] and case["phash_distance"] == 8
+    assert "review pending" in case["status"]
+    monkeypatch.setattr(web_server, "_manifest", lambda: {web_server._FEATURED_QUERY: {"text": "Flood in Cuba"}})
+    monkeypatch.setattr(web_server, "_classify", lambda payload: payload)
+    analysis = web_server._featured_analysis(True)
+    assert analysis["event"] == "hurricane_maria" and analysis["image"] == "AA=="
+    assert analysis["text"] == "Flood in Cuba"
+    assert analysis["presentation"] is True
+    row.loc[0, "status"] = "novel"
+    assert web_server._featured_case() == {"available": False}

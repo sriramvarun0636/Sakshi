@@ -30,6 +30,8 @@ _KEY = secrets.token_bytes(32)
 _INFERENCE_LOCK = threading.RLock()
 _LIVE: dict[str, object] = {}
 _LIVE_ORDER: list[str] = []
+_FEATURED_QUERY = "crisismmd:912163976850690050_0"
+_FEATURED_ORIGIN = "crisismmd:909769085721956352_0"
 
 
 def _known(value: object) -> str | None:
@@ -41,6 +43,19 @@ def _known(value: object) -> str | None:
 
 def _human(value: object) -> str:
     return (_known(value) or "not available").replace("_", " ").capitalize()
+
+
+def _event_name(value: object) -> str:
+    names = {
+        "srilanka_floods": "Sri Lanka floods",
+        "hurricane_harvey": "Hurricane Harvey",
+        "hurricane_irma": "Hurricane Irma",
+        "hurricane_maria": "Hurricane Maria",
+        "mexico_earthquake": "Mexico earthquake",
+        "iraq_iran_earthquake": "Iraq–Iran earthquake",
+        "california_wildfires": "California wildfires",
+    }
+    return names.get(_known(value), _human(value))
 
 
 @lru_cache(maxsize=1)
@@ -103,14 +118,86 @@ def _summary() -> dict:
     return {
         "classifier": bool(checkpoint),
         "events": [
-            {"id": event, "name": _human(event), "windows": len(source.windows), "evidence_ready": source.evidence_ready}
+            {"id": event, "name": _event_name(event), "windows": len(source.windows), "evidence_ready": source.evidence_ready}
             for event, source in sources.items()
         ],
-        "sitrep_events": [_human(event) for event in _sitreps()],
+        "sitrep_events": [_event_name(event) for event in _sitreps()],
         "report_count": len(reports),
         "provenance_events": len(list((ROOT / "data" / "processed" / "provenance").glob("replay_*.parquet"))),
         "model_name": checkpoint.name if checkpoint else None,
+        "headline_metrics": _headline_metrics(),
     }
+
+
+def _headline_metrics() -> list[dict]:
+    """Read the frozen three-seed table so the presentation chart cannot drift."""
+    path = ROOT / "reports" / "results" / "classifier_three_seed.md"
+    if not path.is_file():
+        return []
+    labels = {
+        "Informativeness": "Informativeness",
+        "Humanitarian": "Humanitarian",
+        "Disaster type, combined": "Disaster type",
+        "Severity, DMD": "Severity · DMD",
+    }
+    found = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if len(cells) != 6 or cells[0] not in labels:
+            continue
+        try:
+            mean = float(cells[-1].split("±", 1)[0].strip())
+        except ValueError:
+            continue
+        if 0 <= mean <= 1:
+            found[cells[0]] = {"label": labels[cells[0]], "value": mean}
+    return [found[label] for label in labels if label in found]
+
+
+def _featured_case() -> dict:
+    """A frozen, face-blurred near-duplicate pair for the presentation cover."""
+    replay = _replay("hurricane_maria")
+    match = replay.loc[replay.post_id.eq(_FEATURED_QUERY)] if not replay.empty else replay
+    if len(match) != 1:
+        return {"available": False}
+    row = match.iloc[0]
+    if row["status"] != "recycled" or row["origin_post_id"] != _FEATURED_ORIGIN:
+        return {"available": False}
+    current = _thumbnail(_FEATURED_QUERY, True, max_side=740)
+    earlier = _thumbnail(_FEATURED_ORIGIN, True, max_side=740)
+    if not current or not earlier:
+        return {"available": False}
+    return {
+        "available": True,
+        "current_image": current,
+        "origin_image": earlier,
+        "current_event": "Hurricane Maria",
+        "origin_event": "Hurricane Irma",
+        "current_date": pd.Timestamp(row["posted_at"]).strftime("%d %b %Y").upper(),
+        "origin_date": pd.Timestamp(row["origin_first_seen"]).strftime("%d %b %Y").upper(),
+        "phash_distance": int(row["phash_distance"]),
+        "status": "System-flagged image reuse; human review pending",
+    }
+
+
+def _featured_analysis(presentation: bool) -> dict:
+    """Run the pinned case through the same live path as a user upload."""
+    case = _featured_case()
+    source = _manifest().get(_FEATURED_QUERY)
+    if not case["available"] or source is None:
+        raise ValueError("Featured case is unavailable on this laptop")
+    replay = _replay("hurricane_maria")
+    row = replay.loc[replay.post_id.eq(_FEATURED_QUERY)].iloc[0]
+    return _classify(
+        {
+            "text": _known(source.get("text")) or "",
+            "image": case["current_image"].split(",", 1)[1],
+            "filename": "featured-case.webp",
+            "event": "hurricane_maria",
+            "time": pd.Timestamp(row["posted_at"]).isoformat(),
+            "presentation": presentation,
+        }
+    )
 
 
 def _replay_view(event: str, index: int, lens: str, presentation: bool) -> dict:
@@ -152,14 +239,14 @@ def _replay_view(event: str, index: int, lens: str, presentation: bool) -> dict:
                 "recycled": status == "recycled",
                 "image": _thumbnail(representative_id, presentation),
                 "origin_image": _thumbnail(original_id, presentation) if origin else None,
-                "origin_event": _human(origin.get("origin_event")) if origin else None,
+                "origin_event": _event_name(origin.get("origin_event")) if origin else None,
                 "origin_date": str(origin.get("origin_first_seen"))[:16] if origin else None,
             }
         )
     cumulative = [item["counts"] for item in all_windows[: index + 1]]
     return {
         "available": True,
-        "event": _human(event),
+        "event": _event_name(event),
         "model": source.model_id,
         "evidence_ready": source.evidence_ready,
         "window": index,
@@ -214,6 +301,7 @@ def _sitrep_view(event: str, index: int, presentation: bool) -> dict:
         sentences.append(
             {
                 "id": sentence.get("id"),
+                "round": sentence.get("round", 0),
                 "text": display_text(sentence.get("text")),
                 "accepted": bool(sentence.get("accepted")),
                 "citations": sentence.get("citations", []),
@@ -226,7 +314,7 @@ def _sitrep_view(event: str, index: int, presentation: bool) -> dict:
         )
     return {
         "available": True,
-        "event": _human(event),
+        "event": _event_name(event),
         "window": index,
         "window_count": len(source.windows),
         "date": report["window"]["start"][:16].replace("T", " ") + " UTC",
@@ -325,7 +413,7 @@ def _review_view(lens: str, presentation: bool) -> dict:
                 "kind": item["kind"].replace("_", " "),
                 "reason": display_text(item["reason"]),
                 "text": display_text(_known(row.get("text"))) or "Image-only post",
-                "event": _human(row.get("event")),
+                "event": _event_name(row.get("event")),
                 "image": _thumbnail(item["id"], presentation),
                 "decision": decisions.get(item["id"], {}).get("decision"),
             }
@@ -448,8 +536,10 @@ def _classify(payload: dict) -> dict:
                 checked = index.check(image=image, event=event if time else None, time=time)
                 origin = {
                     "status": checked.status.value,
-                    "event": _human(checked.origin_event) if checked.origin_event else None,
-                    "date": checked.origin_first_seen.isoformat() if checked.origin_first_seen else None,
+                    "event": _event_name(checked.origin_event) if checked.origin_event else None,
+                    "date": checked.origin_first_seen.strftime("%d %b %Y · %H:%M UTC")
+                    if checked.origin_first_seen
+                    else None,
                     "similarity": checked.similarity,
                     "image": _thumbnail(checked.origin_post_id, presentation) if checked.origin_post_id else None,
                 }
@@ -561,6 +651,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"status": "ok"})
             elif url.path == "/api/bootstrap":
                 self._json(_summary())
+            elif url.path == "/api/featured-case":
+                self._json(_featured_case())
             elif url.path == "/api/replay":
                 self._json(
                     _replay_view(
@@ -599,6 +691,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length))
             if self.path == "/api/classify":
                 answer = _classify(payload)
+            elif self.path == "/api/featured-analysis":
+                answer = _featured_analysis(payload.get("presentation", True) is not False)
             elif self.path == "/api/explain":
                 answer = _explain(payload)
             elif self.path == "/api/review":
