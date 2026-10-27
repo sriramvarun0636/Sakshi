@@ -45,32 +45,39 @@ def classifier_run(root: Path = paths.REPO) -> Path | None:
 
 def aggregates(root: Path = paths.REPO) -> list[AggregateSource]:
     result = []
-    for marker in (root / "runs" / "aggregate").rglob("complete.json"):
-        try:
-            done = read_json(marker)
-            directory = marker.parent
-            windows = tuple(sorted(path for path in directory.glob("*.json") if _WINDOW.fullmatch(path.name)))
-            if len(windows) != done["windows"] or not (directory / "tweets.parquet").is_file():
-                continue
-            sample = read_json(windows[0]) if windows else None
-            if sample is None:
-                continue
-            result.append(
-                AggregateSource(
-                    directory,
-                    str(sample["model_id"]),
-                    str(sample["event"]),
-                    str(done["mode"]),
-                    bool(done["evidence_ready"]),
-                    windows,
+    for folder in ("aggregate_captioned", "aggregate"):
+        for marker in (root / "runs" / folder).rglob("complete.json"):
+            try:
+                done = read_json(marker)
+                directory = marker.parent
+                windows = tuple(sorted(path for path in directory.glob("*.json") if _WINDOW.fullmatch(path.name)))
+                if len(windows) != done["windows"] or not (directory / "tweets.parquet").is_file():
+                    continue
+                sample = read_json(windows[0]) if windows else None
+                if sample is None:
+                    continue
+                result.append(
+                    AggregateSource(
+                        directory,
+                        str(sample["model_id"]),
+                        str(sample["event"]),
+                        str(done["mode"]),
+                        bool(done["evidence_ready"]),
+                        windows,
+                    )
                 )
-            )
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
     # Prefer evidence-backed research, then a validated demo preview.
     return sorted(
         result,
-        key=lambda item: (item.evidence_ready, item.mode == "loeo", "validated" in str(item.directory), str(item.directory)),
+        key=lambda item: (
+            item.evidence_ready,
+            item.mode == "loeo",
+            "aggregate_captioned" in item.directory.parts,
+            "validated" in str(item.directory),
+            str(item.directory),
+        ),
         reverse=True,
     )
 
@@ -84,7 +91,7 @@ def preferred_aggregates(root: Path = paths.REPO) -> dict[str, AggregateSource]:
 
 def sitreps(root: Path = paths.REPO) -> dict[str, SitrepSource]:
     result: dict[str, SitrepSource] = {}
-    for folder in ("sitreps_hf", "sitreps"):
+    for folder in ("sitreps_hf_captioned", "sitreps_hf", "sitreps"):
         for marker in sorted((root / "runs" / folder).glob("*/*/complete.json"), reverse=True):
             try:
                 done = read_json(marker)
