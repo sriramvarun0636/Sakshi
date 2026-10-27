@@ -18,7 +18,7 @@ EVENTS = ("hurricane_harvey", "hurricane_maria", "mexico_earthquake")
 REVISION = "cc594898137f460bfe9f0759e9844b3ce807cfb5"
 
 
-def restore(source: Path, staged: Path, output: Path) -> Path:
+def restore(source: Path, staged: Path, output: Path, report: Path) -> Path:
     inventory = json.loads((staged / "inventory.json").read_text())
     entry_bytes = (staged / "entries.json").read_bytes()
     if sha256(entry_bytes).hexdigest() != inventory["entries_sha256"]:
@@ -69,6 +69,31 @@ def restore(source: Path, staged: Path, output: Path) -> Path:
     else:
         atomic.parquet(output, frame)
     CaptionCache(output)
+    event_by_id = {item["sample_id"]: item["event"] for item in entries}
+    report_lines = [
+        "# WP5 image captions",
+        "",
+        "Qwen2.5-VL-7B-Instruct generated captions for every frozen LOEO packet image",
+        "using the design spec's Appendix E.5 prompt, deterministic decoding and 48 new-token limit.",
+        f"Model revision: `{REVISION}`; quantization: bitsandbytes NF4; prompt SHA-256: `{prompt_hash}`.",
+        f"The private cache SHA-256 is `{sha256(output.read_bytes()).hexdigest()}`.",
+        "The cache stores verbatim model output. Packet use applies the existing privacy-safe display cleaner.",
+        "",
+        "| Event | Captions | Over 20 words | Longest (words) |",
+        "|---|---:|---:|---:|",
+    ]
+    for event in EVENTS:
+        values = [item["caption"] for item in rows if event_by_id[item["sample_id"]] == event]
+        lengths = [len(value.split()) for value in values]
+        report_lines.append(f"| {event} | {len(values)} | {sum(length > 20 for length in lengths)} | {max(lengths)} |")
+    report_lines += [
+        "",
+        "The 20-word instruction is a prompt constraint, not a post-generation truncation rule;",
+        "overlength outputs are retained verbatim. Captions are machine generated and have no human accuracy rating.",
+        "Private post images and caption text remain outside Git.",
+        "",
+    ]
+    atomic.text(report, "\n".join(report_lines))
     print({"captions": len(frame), "cache": str(output)})
     return output
 
@@ -78,5 +103,6 @@ if __name__ == "__main__":
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--staged", type=Path, default=paths.REPO / "runs/transfer/caption-images-20261027")
     parser.add_argument("--output", type=Path, default=paths.PROCESSED / "captions.parquet")
+    parser.add_argument("--report", type=Path, default=paths.REPORTS / "generation/captions.md")
     args = parser.parse_args()
-    restore(args.source, args.staged, args.output)
+    restore(args.source, args.staged, args.output, args.report)

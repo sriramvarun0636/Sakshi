@@ -166,7 +166,7 @@ def build() -> list[Path]:
         nbformat.write(notebook, path)
         metadata = {
             "id": f"varun0636/sakshi-caption-{short}",
-            "title": f"SAKSHI Qwen Captions {short}",
+            "title": f"sakshi-caption-{short}",
             "code_file": path.name,
             "language": "python",
             "kernel_type": "notebook",
