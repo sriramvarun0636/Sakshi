@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 370" role="img" aria-labelledby="title desc">
+  <title id="title">SAKSHI — evidence with context</title>
+  <desc id="desc">Editorial dark green cover with an evidence trail from post to human review.</desc>
+  <defs>
+    <pattern id="grid" width="54" height="54" patternUnits="userSpaceOnUse">
+      <path d="M54 0H0V54" fill="none" stroke="#b9d9bd" stroke-opacity=".10" stroke-width="1"/>
+    </pattern>
+    <linearGradient id="ground" x2="1" y2="0">
+      <stop stop-color="#132421"/>
+      <stop offset="1" stop-color="#0c2d29"/>
+    </linearGradient>
+  </defs>
+  <rect width="1440" height="370" fill="url(#ground)"/>
+  <rect width="1440" height="370" fill="url(#grid)"/>
+  <path d="M0 1H1440M0 369H1440" stroke="#b9d9bd" stroke-opacity=".3"/>
+  <path d="M870 0V370" stroke="#b9d9bd" stroke-opacity=".35"/>
+  <g transform="translate(70 49)">
+    <path d="M27 0 54 27 27 54 0 27Z" fill="none" stroke="#e9e8df" stroke-width="2"/>
+    <path d="M27 8V46M8 27H46" stroke="#e9e8df" stroke-width="2"/>
+    <circle cx="27" cy="27" r="7" fill="#ef613d"/>
+  </g>
+  <text x="145" y="75" fill="#b9d9bd" font-family="Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="3">THE FIELDROOM / LOCAL INTELLIGENCE</text>
+  <text x="67" y="225" fill="#f1eee4" font-family="Georgia, 'Times New Roman', serif" font-size="128" letter-spacing="-8">SAKSHI</text>
+  <text x="72" y="294" fill="#ef613d" font-family="Georgia, 'Times New Roman', serif" font-size="42" font-style="italic">Evidence with context.</text>
+  <text x="72" y="342" fill="#b9d9bd" font-family="Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="2">SITUATIONAL AWARENESS THROUGH KNOWLEDGE SYNTHESIS AND HUMAN-INTERPRETABLE AI</text>
+  <text x="922" y="74" fill="#b9d9bd" font-family="Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="2.5">FROM A POST TO A DECISION</text>
+  <path d="M951 117V324" stroke="#b9d9bd" stroke-opacity=".55" stroke-width="2"/>
+  <g font-family="Arial, sans-serif" font-weight="700" letter-spacing="2">
+    <circle cx="951" cy="124" r="10" fill="#ef613d"/>
+    <text x="982" y="130" fill="#f1eee4" font-size="16">01  READ</text>
+    <circle cx="951" cy="173" r="10" fill="#b9d9bd"/>
+    <text x="982" y="179" fill="#f1eee4" font-size="16">02  TRACE</text>
+    <circle cx="951" cy="222" r="10" fill="#b9d9bd"/>
+    <text x="982" y="228" fill="#f1eee4" font-size="16">03  VERIFY</text>
+    <circle cx="951" cy="271" r="10" fill="#b9d9bd"/>
+    <text x="982" y="277" fill="#f1eee4" font-size="16">04  EXPLAIN</text>
+    <circle cx="951" cy="320" r="10" fill="none" stroke="#ef613d" stroke-width="3"/>
+    <text x="982" y="326" fill="#ef613d" font-size="16">05  HUMAN REVIEW</text>
+  </g>
+  <path d="M1347 94h47" stroke="#ef613d" stroke-width="3"/>
+</svg>
