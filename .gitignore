@@ -7,6 +7,15 @@
 # Blind WP5 sheets contain source post text and are local reviewer artifacts.
 /reports/generation/*_sheet.csv
 
+# Presenter-only material is kept outside this public repository.
+/docs/SAKSHI_FIELD_MANUAL.md
+/docs/SAKSHI_EVALUATION_SCRIPT.md
+/docs/demo/
+/output/pdf/SAKSHI_Field_Manual.pdf
+/output/pdf/SAKSHI_Evaluation_Script.pdf
+/scripts/build_field_manual_pdf.py
+/scripts/build_evaluation_script_pdf.py
+
 .venv/
 __pycache__/
 *.egg-info/
