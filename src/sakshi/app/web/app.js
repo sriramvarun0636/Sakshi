@@ -203,8 +203,8 @@ function briefingHtml(caseData, sitrep) {
     briefingModelHtml(state.briefingAnalysis) + '</div></div><button class="briefing-next" type="button" data-briefing-step="2">NEXT / THE CLAIM <span>↓</span></button></section>' +
     '<section class="briefing-scene briefing-claim" id="briefing-scene-2"><div class="briefing-section-head"><span>03 / REPORT CHECK</span><span>HURRICANE MARIA · EXAMPLE WINDOW</span></div>' +
     '<div class="briefing-claim-top"><div><h2>A claim must<br><em>earn its place.</em></h2><p>A sentence stays only when its cited evidence passes the automatic checks. Here is one kept claim and one stopped claim.</p></div>' +
-    '<div class="briefing-verdict"><span>AUTOMATIC CHECK · NOT HUMAN RATED</span><strong>' +
-    (sitrep?.available ? pct(sitrep.rates.final) : '—') + '</strong><small>OF ORIGINAL DRAFT CLAIMS PASSED THE CHECKS</small></div></div>' +
+    '<div class="briefing-verdict"><span>AUTOMATIC CHECK OF CITED POSTS</span><strong>' +
+    (sitrep?.available ? pct(sitrep.rates.final) : '—') + '</strong><small>OF ORIGINAL DRAFT CLAIMS PASSED THE CHECKS</small><p>Machine checked. Human factual review is still pending.</p></div></div>' +
     '<div class="briefing-claim-pair"><article><span>CLAIM CLEARED / ' + esc(accepted?.id || '—') +
     '</span><p>' + esc(accepted?.text || 'No accepted claim in this window.') + '</p><small>CITED POST / ' +
     esc((accepted?.citations || []).join(', ') || 'NONE') + '</small></article><article class="stopped"><span>CLAIM STOPPED / ' +
@@ -350,7 +350,7 @@ function classifyShell() {
   return (
     '<div class="page"><div class="page-inner">' +
     pageIndex("01", "INVESTIGATE") +
-    '<section class="hero"><div class="hero-copy"><div class="hero-kicker">SITUATIONAL AWARENESS / LIVE ANALYSIS</div><div><h1>See the signal.<br><em>Trace</em> the source.</h1><p>One post, four decisions, and a visible path back to the evidence. Read the model; question the image.</p></div><div class="hero-foot"><span class="pulse"></span> CPU INFERENCE <span class="slash">/</span> LOCAL ONLY <span class="slash">/</span> HUMAN REVIEW</div></div><div class="hero-visual' +
+    '<section class="hero"><div class="hero-copy"><div class="hero-kicker">SITUATIONAL AWARENESS / LIVE ANALYSIS</div><div><h1>One post.<br><em>Four answers.</em></h1><p>Add text, an image, or both. The model classifies the post, checks earlier image appearances, and flags uncertainty for review.</p></div><div class="hero-foot"><span class="pulse"></span> CPU INFERENCE <span class="slash">/</span> LOCAL ONLY <span class="slash">/</span> HUMAN REVIEW</div></div><div class="hero-visual' +
     (state.featuredCase?.available ? " is-case" : "") +
     '" id="featured-case">' +
     featuredCaseHtml(state.featuredCase) +
@@ -485,6 +485,12 @@ function explanationOutput(result, headKey, classification) {
   const wordNote = imageHead
     ? "This decision uses the photo, so there are no word highlights."
     : "This post has no text, so there are no word highlights.";
+  const questions = {
+    informative: "Is this useful disaster information?",
+    humanitarian: "What humanitarian need or impact does it describe?",
+    severity: "How much visible damage does the photo show?",
+    disaster_type: "Which disaster type does the photo suggest?",
+  };
   const max = Math.max(0.001, ...result.words.map((word) => Math.abs(word.score)));
   const words = result.words.map((word) => {
     const strength = Math.min(0.46, 0.08 + 0.38 * Math.abs(word.score) / max).toFixed(3);
@@ -494,8 +500,9 @@ function explanationOutput(result, headKey, classification) {
       esc(word.text) + '</span>';
   }).join(" ");
   const header = '<div class="xai-result-head"><span>SELECTED DECISION / ' + esc(name) +
-    '</span><strong>' + esc(head?.label || "No label returned") +
-    '</strong><div class="xai-verdict"><b>' + pct(head?.probability) +
+    '</span><div class="xai-decision"><p>' + esc(questions[headKey] || "What did the model decide?") +
+    '</p><strong>' + esc(head?.label || "No label returned") +
+    '</strong></div><div class="xai-verdict"><b>' + pct(head?.probability) +
     '</b><small>MODEL CONFIDENCE</small><p>This explains the model’s answer. It does not prove the post is true.</p></div></div>';
   const wordPanel = '<div class="xai-words"><div class="xai-panel-label">WORDS THAT INFLUENCED THIS ANSWER</div>' +
     '<div class="xai-word-flow">' + words + '</div><div class="xai-legend"><span><i></i> SUPPORTS THE ANSWER</span>' +
@@ -526,7 +533,7 @@ function explanationComparison(explanations, selectedHead, classification) {
   const revealed = classification.heads.filter((head) => explanations[head.key]?.heatmap);
   if (revealed.length < 2) return "";
   return '<section class="xai-comparison"><div class="xai-comparison-head"><div><span class="micro micro-orange">ONE PHOTO / DIFFERENT DECISIONS</span>' +
-    '<h3>Same photo. Different focus.</h3></div><p>Compare the highlighted places. Some overlap is expected; color brightness is relative within each map.</p></div>' +
+    '<h3>One image, several questions.</h3></div><p>Shared highlights are expected because the heads use the same image encoder. Compare locations, not color intensity: each map is scaled separately.</p></div>' +
     '<div class="xai-comparison-grid">' + revealed.map((head) =>
       '<button type="button" class="xai-comparison-card' + (head.key === selectedHead ? ' active' : '') +
       '" data-xai-head="' + esc(head.key) + '" aria-label="View ' + esc(head.name) + ' explanation">' +
@@ -911,9 +918,9 @@ function sitrepHtml(data) {
   const originalCount = data.available ? data.sentences.filter((s) => Number(s.round) === 0).length : 0;
   const failedRewrites = rejected.filter((s) => Number(s.round) > 0).length;
   const verdict = data.available
-    ? '<aside class="verifier-panel"><div class="verifier-top">AUTOMATED VERIFIER <span>NOT HUMAN RATED</span></div><div class="verifier-number"><strong>' +
+    ? '<aside class="verifier-panel"><div class="verifier-top">AUTOMATIC EVIDENCE CHECK</div><div class="verifier-number"><strong>' +
       pct(data.rates.final) +
-      '</strong><span>FINAL ACCEPTANCE<br>OF ORIGINAL CLAIMS</span></div><div class="verifier-ledger"><div><b>' +
+      '</strong><span>OF ORIGINAL CLAIMS<br>CLEARED AFTER CHECKS</span></div><p class="verifier-explainer">Checked against cited posts. This is not a human truth score.</p><div class="verifier-ledger"><div><b>' +
       originalCount +
       '</b><small>ORIGINAL CLAIMS</small></div><div><b>' +
       accepted.length +
@@ -982,7 +989,7 @@ function sitrepHtml(data) {
         data.window +
         '"></div></div><div class="sitrep-model micro micro-mute">' +
         esc(data.model_display) +
-        '</div><div class="sitrep-note micro micro-mute">' +
+        '</div><div class="sitrep-note">' +
         esc(data.verification_note) +
         "</div>"
       : "</div>") +
@@ -1295,7 +1302,7 @@ function resultsHtml(data) {
   return (
     '<div class="page"><div class="page-inner">' +
     pageIndex("05", "RESEARCH RESULTS") +
-    '<div class="results-head"><div class="copy"><span class="micro" style="color:var(--mint)">READ THE EVIDENCE / 05</span><h1>The record,<br>in view.</h1><p>Methods, findings, and limits. Development checks remain distinct from final research results.</p></div>' +
+    '<div class="results-head"><div class="copy"><span class="micro" style="color:var(--mint)">READ THE EVIDENCE / 05</span><h1>What worked.<br>What didn’t.</h1><p>Four official test scores from three training runs. Damage severity is the weakest task; open a report for the methods and limits.</p></div>' +
     resultChartHtml(state.bootstrap.headline_metrics) +
     '</div><div class="ribbon"><div class="ribbon-cell"><small>REPORTS AVAILABLE</small><strong>' +
     fmt(data.reports.length) +
